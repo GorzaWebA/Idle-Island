@@ -126,13 +126,17 @@ To get a single self-contained file you can pass around, run `node tools/build.j
 
 ## 🚀 Deploying to GitHub Pages
 
-The live game is served from the `gh-pages` branch. To publish your current code there:
+The game is all static files, with `index.html` at the repository root, so GitHub Pages can serve it either way.
+Choose under **Settings → Pages → Deploy from a branch**:
 
-```sh
-tools/deploy-pages.sh
-```
+- **From `gh-pages` (recommended).** Select `gh-pages` and `/ (root)`, and publish with:
 
-The script copies only what the game needs (`index.html`, `css/`, `js/` and the link-preview image) into `gh-pages`, then commits and pushes. If the site doesn't appear within a few minutes, go to **Settings → Pages**, choose **Deploy from a branch**, then select `gh-pages` and `/ (root)`.
+  ```sh
+  tools/deploy-pages.sh
+  ```
+
+  The script copies only what the game needs (`index.html`, `css/`, `js/` and the link-preview image) into `gh-pages`, then commits and pushes. The live site changes only when you deploy.
+- **Straight from a code branch.** Select that branch and `/ (root)`. Every push goes live within a minute or two.
 
 ## 🗂️ Code layout
 

@@ -31,7 +31,7 @@ else
 fi
 
 # Replace the site with a fresh copy of the game.
-git -C "$work" rm -rq --ignore-unmatch .
+git -C "$work" rm -rqf --ignore-unmatch . >/dev/null
 find "$work" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
 cp index.html "$work/"
 cp -R css js "$work/"
