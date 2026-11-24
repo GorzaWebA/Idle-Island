@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Idle Island</title>
+<meta name="description" content="An idle base-defence game: build up a small island while raiders arrive by longboat.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Grenze:wght@600;700&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<!--BODY-START-->
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-name">Idle Island</span>
+      <span class="trait-chip" id="trait-chip" title=""></span>
+    </div>
+    <div class="resources">
+      <div class="res" title="Gold">
+        <svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5" fill="var(--coin)"/><circle cx="10" cy="10" r="4.6" fill="none" stroke="var(--coin-dark)" stroke-width="1.6"/></svg>
+        <span class="res-val" id="gold">0</span><span class="res-rate" id="gold-rate">+0/s</span>
+      </div>
+      <div class="res" title="Timber">
+        <svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><rect x="2" y="7" width="16" height="7" rx="3.5" fill="var(--wood)"/><circle cx="15" cy="10.5" r="3" fill="var(--wood-light)"/></svg>
+        <span class="res-val" id="timber">0</span><span class="res-rate" id="timber-rate">+0/s</span>
+      </div>
+      <div class="res" id="renown-res" title="Renown" hidden>
+        <svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2l2.2 5 5.3.4-4 3.5 1.3 5.2L10 13.3 5.2 16.1l1.3-5.2-4-3.5 5.3-.4z" fill="var(--renown)"/></svg>
+        <span class="res-val" id="renown">0</span>
+      </div>
+    </div>
+    <div class="wavebox">
+      <div class="wave-main">
+        <span class="wave-label">Wave</span>
+        <span class="wave-num" id="wave">1</span>
+      </div>
+      <div class="wave-sub">
+        <span id="wave-status">Boats sighted</span>
+        <span class="wave-best" id="wave-best"></span>
+      </div>
+      <div class="wave-actions">
+        <button class="btn btn-small" id="call-btn" data-act="call-now" title="Bring the boats in now for bonus gold">Call now</button>
+        <button class="toggle" id="advance-btn" data-act="advance" aria-pressed="true" title="When on, each victory moves you to the next wave">Advance</button>
+      </div>
+    </div>
+    <div class="controls" role="group" aria-label="Game speed">
+      <button class="seg" data-act="speed" data-arg="1" id="spd-1">1×</button>
+      <button class="seg" data-act="speed" data-arg="2" id="spd-2">2×</button>
+      <button class="seg" data-act="speed" data-arg="3" id="spd-3">3×</button>
+      <button class="seg" data-act="pause" id="pause-btn" aria-pressed="false" title="Pause (Space)">Pause</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="stage" id="stage">
+      <canvas id="cv" aria-label="The island"></canvas>
+      <div class="stage-banner" id="banner" hidden><strong id="banner-title"></strong><span id="banner-sub"></span></div>
+      <div class="stage-mode" id="mode-line" hidden></div>
+      <div class="stage-hover" id="hover-line" hidden></div>
+      <div class="stage-paused" id="paused-veil" hidden>Paused</div>
+    </section>
+
+    <aside class="panel">
+      <div class="hint" id="hint" hidden></div>
+      <nav class="tabs" role="tablist">
+        <button class="tab" role="tab" data-act="tab" data-arg="build" id="tab-build">Build</button>
+        <button class="tab" role="tab" data-act="tab" data-arg="squads" id="tab-squads">Squads</button>
+        <button class="tab" role="tab" data-act="tab" data-arg="sagas" id="tab-sagas">Sagas</button>
+        <button class="tab" role="tab" data-act="tab" data-arg="chronicle" id="tab-chronicle">Chronicle</button>
+      </nav>
+      <div class="panel-body" id="panel-body"></div>
+    </aside>
+  </main>
+
+  <div class="modal-veil" id="modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <h2 id="modal-title"></h2>
+      <div id="modal-body"></div>
+      <button class="btn btn-primary" data-act="close-modal" id="modal-ok">Continue</button>
+    </div>
+  </div>
+</div>
+<!--BODY-END-->
+<script src="js/util.js"></script>
+<script src="js/data.js"></script>
+<script src="js/island.js"></script>
+<script src="js/state.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/render.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
