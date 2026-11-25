@@ -179,3 +179,4 @@ and explains the balance targets.
 <p align="center">
   <a href="https://gorzaweba.github.io/Idle-Island/"><img alt="Play now" src="https://img.shields.io/badge/%E2%9B%B5_set_sail-play_Idle_Island-e3b04b?style=for-the-badge&labelColor=1a4150"></a>
 </p>
+
