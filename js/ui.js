@@ -337,6 +337,23 @@ function updateHeader() {
   setText($('hover-line'), hv);
 }
 
+// What building `type` on tile (x, y) would give, and whether it can go there.
+function placementPreview(type, x, y) {
+  const chk = placementCheck(type, x, y);
+  let gain = '';
+  if (chk.valid) {
+    if (type === 'lumber') gain = '+' + fmtRate(lumberTimber(1, adjacentTrees(x, y)) * (G.island.trait === 'timberland' ? 1.25 : 1)) + ' timber/s';
+    else if (type === 'cottage') gain = '+' + fmtRate(cottageGold(1) * (1 + marketBonusAt(x, y)) * (1 + 0.2 * sagaLvl('harvest')) * (G.island.trait === 'fertile' ? 1.25 : 1)) + ' gold/s';
+    else if (type === 'tower') gain = 'Range ' + (3.5 + (tileType(x, y) === T_HIGH ? 1 : 0));
+    else if (type === 'market') {
+      let n = 0; for (const o of G.buildings) if ((o.type === 'cottage' || o.type === 'hall') && Math.max(Math.abs(o.x - x), Math.abs(o.y - y)) === 1) n++;
+      gain = 'Boosts ' + n + ' building' + (n === 1 ? '' : 's');
+    } else if (type === 'barracks') gain = '+1 squad';
+    else if (type === 'palisade') gain = 'Wall';
+  }
+  return { chk, gain };
+}
+
 function hoverText() {
   const hv = UI.hover;
   if (!hv || !inMap(hv.x, hv.y)) return '';
@@ -348,17 +365,8 @@ function hoverText() {
   const b = buildingAtTile(hv.x, hv.y);
   if (b) s = BUILDINGS[b.type].name + ' Lv ' + b.lvl + (b.ruined ? ' (ruined)' : '') + ' · ' + s;
   if (UI.placing) {
-    const chk = placementCheck(UI.placing, hv.x, hv.y);
-    let preview = '';
-    if (chk.valid) {
-      if (UI.placing === 'lumber') preview = ' · +' + fmtRate(lumberTimber(1, adjacentTrees(hv.x, hv.y)) * (G.island.trait === 'timberland' ? 1.25 : 1)) + ' timber/s';
-      if (UI.placing === 'cottage') preview = ' · +' + fmtRate(cottageGold(1) * (1 + marketBonusAt(hv.x, hv.y)) * (1 + 0.2 * sagaLvl('harvest')) * (G.island.trait === 'fertile' ? 1.25 : 1)) + ' gold/s';
-      if (UI.placing === 'tower') preview = ' · range ' + (3.5 + (t === T_HIGH ? 1 : 0));
-      if (UI.placing === 'market') {
-        let n = 0; for (const o of G.buildings) if ((o.type === 'cottage' || o.type === 'hall') && Math.max(Math.abs(o.x - hv.x), Math.abs(o.y - hv.y)) === 1) n++;
-        preview = ' · boosts ' + n + ' building' + (n === 1 ? '' : 's');
-      }
-    }
+    const pv = placementPreview(UI.placing, hv.x, hv.y), chk = pv.chk;
+    const preview = pv.gain && UI.placing !== 'palisade' && UI.placing !== 'barracks' ? ' · ' + pv.gain.charAt(0).toLowerCase() + pv.gain.slice(1) : '';
     const ask = isTouch() ? (UI.pending && UI.pending.x === hv.x && UI.pending.y === hv.y ? 'Tap again to build' : 'Tap to preview') : 'Click to build';
     s = (chk.ok ? ask : chk.reason) + preview + ' · ' + s;
   }

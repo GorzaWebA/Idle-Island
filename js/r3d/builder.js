@@ -124,6 +124,16 @@ window.R3 = window.R3 || {};
       }
       return this;
     }
+    // Append another geometry's triangles in one colour (optionally transformed by m).
+    addGeo(geometry, c, m) {
+      const g = geometry.index ? geometry.toNonIndexed() : geometry, pos = g.attributes.position;
+      const saved = this.m;
+      this.m = m ? (saved ? saved.clone().multiply(m) : m) : saved;
+      for (let i = 0; i < pos.count; i++) this._vert(pos.getX(i), pos.getY(i), pos.getZ(i), c);
+      this.m = saved;
+      if (g !== geometry) g.dispose();
+      return this;
+    }
     count() { return this.p.length / 3; }
     geometry() {
       const g = new THREE.BufferGeometry();

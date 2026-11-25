@@ -21,7 +21,8 @@ window.R3 = window.R3 || {};
   const view = {
     kind: '3d', canvas: null, stage: null,
     renderer: null, scene: null, camera: null, rig: null, picker: null,
-    terrain: null, sea: null, buildings: null, units: null, overlay: null,
+    terrain: null, sea: null, props: null, buildings: null, units: null, overlay: null, puffs: null,
+    wind: { value: 0 },
     sun: null, hemi: null, map: null, time: 0, mobile: false, dprCap: 2,
 
     init(stage) {
@@ -61,10 +62,13 @@ window.R3 = window.R3 || {};
       this.rig = new R3.CameraRig(this.camera, canvas);
       this.picker = new R3.Picker(this.camera, canvas);
       this.rig.groundPick = (mx, my) => this.picker.ground(mx, my);
-      this.buildings = new R3.Buildings(this.scene);
+      this.puffs = new R3.Puffs(this.scene, this.mobile ? 240 : 400);
+      this.propMats = R3.Props.materials(this.wind);
+      this.buildings = new R3.Buildings(this.scene, this.puffs);
       this.picker.extraTop = (x, z) => this.buildings.heightOn(x, z);
       this.units = new R3.Units(this.scene);
-      this.overlay = new R3.Overlay(this.scene);
+      this.overlay = new R3.Overlay(this.scene, this.buildings, this.picker);
+      this.occupied = tile => this.buildings.byTile.has(tile);
 
       this.buildIsland();
       this.applyTheme();
@@ -81,10 +85,12 @@ window.R3 = window.R3 || {};
     buildIsland() {
       if (this.terrain) { this.scene.remove(this.terrain.group); this.terrain.dispose(); }
       if (this.sea) { this.scene.remove(this.sea.mesh); this.sea.dispose(); }
-      this.buildings.clear(); this.units.clear();
+      if (this.props) { this.scene.remove(this.props.group); this.props.dispose(); }
+      this.buildings.clear(); this.units.clear(); this.puffs.clear();
       this.terrain = R3.Terrain.build();
       this.sea = R3.Sea.build(THEME3D.current());
-      this.scene.add(this.terrain.group, this.sea.mesh);
+      this.props = R3.Props.build(this.propMats);
+      this.scene.add(this.terrain.group, this.sea.mesh, this.props.group);
       const b = R3.Terrain.landBounds();
       this.rig.setBounds(b);
       this.fitSun(b);
@@ -134,10 +140,15 @@ window.R3 = window.R3 || {};
     frame(dt, alpha) {
       if (this.map !== MAP) this.buildIsland();
       this.time += dt;
+      this.wind.value = this.time;
       this.rig.update(dt);
       this.sea.update(this.time);
-      this.buildings.sync();
+      this.buildings.sync(dt);
+      let key = G.buildings.length;
+      for (const b of G.buildings) key = (key * 31 + b.y * MAP_W + b.x + 1) | 0;
+      this.props.update(key, this.occupied);
       this.units.sync(alpha === undefined ? 1 : alpha, dt);
+      this.puffs.update(dt);
       this.overlay.update();
       this.renderer.render(this.scene, this.camera);
     },

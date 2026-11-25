@@ -1,116 +1,189 @@
 'use strict';
-/* Buildings (Phase 1): one simple, recognisable model per type, plus a ruin.
-   Phase 2 replaces these with tiered models, batching, fire and construction animation. */
+/* Buildings: every model variant (type x tier, ruins, palisade shapes) is one InstancedMesh,
+   so a whole settlement costs a handful of draw calls.
+   Per building the renderer keeps its own state (never the sim's):
+     construction (springs up with a bounce and dust), tier-up pop, hit flash, collapse to a
+     ruin, chimney smoke, flags and a sawing saw. */
 window.R3 = window.R3 || {};
 (function (R3) {
   const T = THEME3D.base;
-  // Rough height of each building above its tile, used by picking.
-  const HEIGHT = { hall: 0.95, cottage: 0.62, lumber: 0.42, barracks: 0.6, tower: 1.35, palisade: 0.42, market: 0.55, ruin: 0.25 };
+  const UP = new THREE.Vector3(0, 1, 0);
+  const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _c = new THREE.Color(), _w = new THREE.Color(1, 1, 1);
+  const BUILD_TIME = 0.7;
 
-  function model(type) {
-    const mb = new R3.MeshBuilder();
-    switch (type) {
-      case 'hall':
-        mb.box(-0.42, 0, -0.26, 0.42, 0.34, 0.26, { top: T.wallShade, side: T.wall });
-        for (const x of [-0.42, -0.14, 0.14, 0.42]) mb.box(x - 0.025, 0, 0.255, x + 0.025, 0.34, 0.275, T.timber);
-        mb.gable(-0.47, -0.31, 0.47, 0.31, 0.32, 0.72, T.hallRoof, T.timber, 'x');
-        mb.box(-0.06, 0, 0.26, 0.06, 0.2, 0.285, T.char);
-        mb.box(-0.5, 0.66, -0.02, -0.44, 0.84, 0.02, T.gold); mb.box(0.44, 0.66, -0.02, 0.5, 0.84, 0.02, T.gold);
-        break;
-      case 'cottage':
-        mb.box(-0.24, 0, -0.18, 0.24, 0.26, 0.18, { top: T.wallShade, side: T.wall });
-        mb.box(-0.05, 0, 0.18, 0.05, 0.15, 0.195, T.timber);
-        mb.gable(-0.28, -0.22, 0.28, 0.22, 0.24, 0.52, T.roof, T.wallShade, 'x');
-        mb.box(0.1, 0.36, -0.08, 0.17, 0.56, -0.01, T.stoneDark);
-        break;
-      case 'lumber':
-        mb.box(-0.3, 0, -0.22, -0.02, 0.22, 0.1, T.timber);
-        mb.gable(-0.33, -0.25, 0.01, 0.13, 0.2, 0.36, T.thatch, T.timber, 'z');
-        for (let r = 0; r < 2; r++) for (let k = 0; k < 3 - r; k++) {
-          const x = 0.08 + k * 0.1 + r * 0.05, y = 0.05 + r * 0.085;
-          const m = new THREE.Matrix4().makeRotationX(Math.PI / 2).setPosition(x, y, 0.02);
-          mb.setMatrix(m).cyl(0, -0.16, 0, 0.045, 0.16, 0.045, 6, { side: T.log, top: T.logEnd }, 'both').setMatrix(null);
-        }
-        break;
-      case 'barracks':
-        mb.box(-0.34, 0, -0.22, 0.34, 0.3, 0.22, { top: T.stone, side: T.stone });
-        mb.gable(-0.38, -0.26, 0.38, 0.26, 0.28, 0.5, T.slate, T.stoneDark, 'x');
-        for (let k = 0; k < 3; k++) mb.box(-0.22 + k * 0.17, 0.1, 0.22, -0.14 + k * 0.17, 0.2, 0.24, [0xc94f3d, 0x3f7fc4, 0xe3b04b][k]);
-        break;
-      case 'tower':
-        mb.box(-0.14, 0, -0.14, 0.14, 0.9, 0.14, { top: T.stone, side: T.stone });
-        mb.box(-0.21, 0.88, -0.21, 0.21, 0.96, 0.21, T.timber);
-        for (const [x, z] of [[-0.2, -0.2], [0.2, -0.2], [-0.2, 0.2], [0.2, 0.2]]) mb.cbox(x, 0.96, z, 0.04, 0.14, 0.04, T.timber);
-        mb.pyramid(-0.25, -0.25, 0.25, 0.25, 1.1, 1.35, [T.roof, T.roofDark, T.roof, T.roofDark]);
-        break;
-      case 'palisade':
-        for (let k = 0; k < 4; k++) {
-          const x = -0.36 + k * 0.24;
-          mb.cyl(x, 0, 0, 0.07, 0.32, 0.07, 6, k % 2 ? T.log : T.timber, false);
-          mb.cyl(x, 0.32, 0, 0.07, 0.42, 0, 6, T.logEnd, false);
-        }
-        mb.box(-0.45, 0.16, -0.08, 0.45, 0.21, -0.05, T.timber);
-        break;
-      case 'market':
-        for (const [x, z] of [[-0.3, -0.2], [0.3, -0.2], [-0.3, 0.2], [0.3, 0.2]]) mb.cbox(x, 0, z, 0.04, 0.34, 0.04, T.timber);
-        mb.box(-0.27, 0, -0.17, 0.27, 0.14, 0.17, T.log);
-        for (let k = 0; k < 6; k++) mb.box(-0.34 + k * 0.1133, 0.33, -0.26, -0.34 + (k + 1) * 0.1133, 0.38, 0.26, k % 2 ? T.canvas : T.roof);
-        mb.box(-0.18, 0.14, -0.05, -0.06, 0.22, 0.05, T.gold);
-        mb.box(0.04, 0.14, -0.05, 0.16, 0.22, 0.05, 0x6fa35a);
-        break;
-      default: // ruin
-        mb.box(-0.3, 0, -0.22, 0.3, 0.08, 0.22, T.ruin);
-        mb.box(-0.22, 0, -0.16, -0.16, 0.25, -0.1, T.char);
-        mb.box(0.12, 0, 0.05, 0.18, 0.18, 0.11, T.char);
-        mb.gable(-0.1, -0.12, 0.2, 0.12, 0.08, 0.16, T.char, T.ruin, 'x');
+  function easeOutBack(k) { const c1 = 1.70158, c3 = c1 + 1, t = k - 1; return 1 + c3 * t * t * t + c1 * t * t; }
+  // Quarter-turn variety for small buildings; the Hall, towers and walls stay square to the map.
+  function rotFor(type, x, y) {
+    if (type === 'hall' || type === 'tower' || type === 'palisade') return 0;
+    return Math.floor(R3.hash3(x, (MAP ? MAP.seed % 997 : 0), y) * 4) * Math.PI / 2;
+  }
+  function palisadeMask(at, x, y) {
+    let m = 0;
+    for (const [bit, dx, dz] of R3.Models.ARMS) { const o = at(x + dx, y + dz); if (o && o.type === 'palisade') m |= bit; }
+    return m;
+  }
+
+  class Batch {
+    constructor(group, geo, mat, cap) {
+      this.group = group; this.geo = geo; this.mat = mat; this.n = 0;
+      this.make(cap);
     }
-    return mb.geometry();
+    make(cap) {
+      const old = this.mesh;
+      this.cap = cap;
+      this.mesh = new THREE.InstancedMesh(this.geo, this.mat, cap);
+      this.mesh.castShadow = true; this.mesh.receiveShadow = true; this.mesh.frustumCulled = false;
+      this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      this.mesh.setColorAt(0, _w);
+      this.group.add(this.mesh);
+      if (old) {   // keep what was already written this frame
+        for (let i = 0; i < this.n; i++) { old.getMatrixAt(i, _m); this.mesh.setMatrixAt(i, _m); old.getColorAt(i, _c); this.mesh.setColorAt(i, _c); }
+        this.group.remove(old); old.dispose();
+      }
+    }
+    add(m, c) {
+      if (this.n >= this.cap) this.make(this.cap * 2);
+      this.mesh.setMatrixAt(this.n, m);
+      this.mesh.setColorAt(this.n, c);
+      this.n++;
+    }
+    end() {
+      this.mesh.count = this.n;
+      this.mesh.visible = this.n > 0;
+      this.mesh.instanceMatrix.needsUpdate = true;
+      if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    }
+    dispose() { this.group.remove(this.mesh); this.mesh.dispose(); }
   }
 
   class Buildings {
-    constructor(scene) {
-      this.scene = scene; this.mat = R3.flatMaterial(); this.geo = {}; this.meshes = new Map();
-      this.byTile = new Map();
+    constructor(scene, puffs) {
+      this.scene = scene; this.puffs = puffs;
+      this.mat = R3.flatMaterial();
       this.group = new THREE.Group(); scene.add(this.group);
+      this.batches = new Map();
+      this.state = new Map();
+      this.byTile = new Map();
+      this.frame = 0; this.time = 0; this.initial = true;
+      const extra = (geo, cap) => {
+        const m = new THREE.InstancedMesh(geo, this.mat, cap);
+        m.count = 0; m.castShadow = true; m.frustumCulled = false;
+        m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); m.setColorAt(0, _w);
+        this.group.add(m);
+        return m;
+      };
+      this.flags = extra(R3.Models.flagGeometry(), 64);
+      this.saws = extra(R3.Models.sawGeometry(), 32);
+      this.at = (x, z) => (inMap(x, z) ? this.byTile.get(z * MAP_W + x) : null);
     }
-    geometryFor(type) { return this.geo[type] || (this.geo[type] = model(type)); }
-    // Extra height on a tile for picking (0 if empty).
+    batch(model) {
+      let b = this.batches.get(model.key);
+      if (!b) { b = new Batch(this.group, model.geo, this.mat, 8); this.batches.set(model.key, b); }
+      return b;
+    }
+    // Height of whatever stands on a tile, for picking (-99 when empty).
     heightOn(tx, tz) {
       const b = this.byTile.get(tz * MAP_W + tx);
-      return b ? R3.Terrain.tileTop(tx, tz) + HEIGHT[b.ruined ? 'ruin' : b.type] : -99;
+      if (!b) return -99;
+      const st = this.state.get(b.id);
+      return R3.Terrain.tileTop(tx, tz) + (st && st.h ? st.h : 0.5);
     }
-    sync() {
-      const seen = this.seen || (this.seen = new Set());
-      seen.clear(); this.byTile.clear();
-      for (const b of G.buildings) { seen.add(b.id); this.byTile.set(b.y * MAP_W + b.x, b); }
-      const at = (x, z) => (inMap(x, z) ? this.byTile.get(z * MAP_W + x) : null);
+    modelFor(b) {
+      const mask = b.type === 'palisade' ? palisadeMask(this.at, b.x, b.y) : 0;
+      return R3.Models.get(b.type, R3.Models.tierOf(b.type, b.lvl), b.ruined, mask);
+    }
+
+    sync(dt) {
+      const f = ++this.frame;
+      this.time += dt;
+      const t = this.time;
+      this.byTile.clear();
+      for (const b of G.buildings) this.byTile.set(b.y * MAP_W + b.x, b);
+      for (const bt of this.batches.values()) bt.n = 0;
+      let nf = 0, ns = 0;
       for (const b of G.buildings) {
-        const type = b.ruined ? 'ruin' : b.type;
-        let m = this.meshes.get(b.id);
-        if (!m) {
-          m = new THREE.Mesh(this.geometryFor(type), this.mat);
-          m.castShadow = true; m.receiveShadow = true;
-          m.userData.type = type;
-          this.meshes.set(b.id, m); this.group.add(m);
-          // Face the long side to the south by default, palisades along their run.
-          m.rotation.y = 0;
+        const model = this.modelFor(b), tier = R3.Models.tierOf(b.type, b.lvl);
+        const cx = b.x + 0.5, cz = b.y + 0.5, gy = R3.Terrain.heightAt(cx, cz);
+        let st = this.state.get(b.id);
+        if (!st) {
+          st = { t: this.initial ? 99 : 0, pop: 99, rot: rotFor(b.type, b.x, b.y), smoke: Math.random() * 1.5, ruined: b.ruined, tier, h: model.height, frame: f };
+          this.state.set(b.id, st);
+          if (!this.initial) this.puffs.burst(cx, gy, cz, 0.38, 12, T.dust);
+        } else {
+          if (st.ruined && !b.ruined) { st.t = 0; this.puffs.burst(cx, gy, cz, 0.38, 10, T.dust); }
+          else if (!st.ruined && b.ruined) { st.t = 99; this.puffs.burst(cx, gy, cz, 0.3, 14, T.ash, 0.45); }
+          else if (st.tier !== tier && !b.ruined) { st.pop = 0; this.puffs.burst(cx, gy, cz, 0.36, 8, T.dust); }
         }
-        if (m.userData.type !== type) { m.geometry = this.geometryFor(type); m.userData.type = type; }
-        const s = 1 + Math.min(4, b.lvl - 1) * 0.05;
-        m.scale.set(s, s, s);
-        m.position.set(b.x + 0.5, R3.Terrain.heightAt(b.x + 0.5, b.y + 0.5), b.y + 0.5);
-        if (b.type === 'palisade') {
-          const pal = o => o && o.type === 'palisade';
-          const ew = pal(at(b.x - 1, b.y)) || pal(at(b.x + 1, b.y)), ns = pal(at(b.x, b.y - 1)) || pal(at(b.x, b.y + 1));
-          m.rotation.y = ns && !ew ? Math.PI / 2 : 0;
+        st.ruined = b.ruined; st.tier = tier; st.h = model.height; st.frame = f; st.cx = cx; st.gy = gy; st.cz = cz;
+        st.t += dt; st.pop += dt;
+
+        // construction: rise from the ground and settle with a little overshoot
+        let sx = 1, sy = 1;
+        if (st.t < BUILD_TIME) { const k = easeOutBack(Math.min(1, st.t / BUILD_TIME)); sy = Math.max(0.02, k); sx = 0.6 + 0.4 * k; }
+        if (st.pop < 0.45) { const k = Math.sin(st.pop / 0.45 * Math.PI) * 0.09; sx *= 1 + k; sy *= 1 + k; }
+        _q.setFromAxisAngle(UP, st.rot); _s.set(sx, sy, sx); _p.set(cx, gy, cz);
+        _m.compose(_p, _q, _s);
+        _c.copy(_w);
+        if (b.flash > 0) _c.setRGB(1.6, 0.75, 0.6);
+        this.batch(model).add(_m, _c);
+
+        // animated extras on finished, standing buildings
+        if (!b.ruined && st.t >= BUILD_TIME) {
+          const cos = Math.cos(st.rot), sin = Math.sin(st.rot);
+          const wx = (x, z) => cx + x * cos + z * sin, wz = (x, z) => cz - x * sin + z * cos;
+          for (const fl of model.flags) {
+            if (nf >= 64) break;
+            _q.setFromAxisAngle(UP, st.rot + 0.6 + Math.sin(t * 2.6 + b.id + fl[0] * 9) * 0.35);
+            const wave = 1 + Math.sin(t * 7 + b.id) * 0.06;
+            _s.set(fl[3] * wave, fl[3], fl[3]); _p.set(wx(fl[0], fl[2]), gy + fl[1], wz(fl[0], fl[2]));
+            _m.compose(_p, _q, _s);
+            this.flags.setMatrixAt(nf, _m);
+            this.flags.setColorAt(nf, _c.setHex(b.type === 'barracks' ? T.banner : b.type === 'market' ? T.produce[(nf + b.id) % 4] : T.player));
+            nf++;
+          }
+          for (const sw of model.saws) {
+            if (ns >= 32) break;
+            const k = Math.sin(t * 7 + b.id);
+            _q.setFromAxisAngle(UP, st.rot + Math.PI / 2);
+            _s.set(1, 1, 1); _p.set(wx(sw[0], sw[2] + k * 0.05), gy + sw[1] + Math.abs(k) * 0.015, wz(sw[0], sw[2] + k * 0.05));
+            _m.compose(_p, _q, _s);
+            this.saws.setMatrixAt(ns, _m); this.saws.setColorAt(ns, _w);
+            ns++;
+          }
+          if (model.smoke.length && (st.smoke -= dt) <= 0) {
+            st.smoke = 0.55 + Math.random() * 0.5;
+            for (const sm of model.smoke) this.puffs.spawn(wx(sm[0], sm[2]), gy + sm[1], wz(sm[0], sm[2]), 0.05, 0.28, 0.03, 2.4, 0.05, 0.17, T.smoke);
+          }
+        } else if (b.ruined && b.rebuild <= 0 && (st.smoke -= dt) <= 0) {
+          // a smouldering ruin (fire arrives in phase 4)
+          st.smoke = 0.35 + Math.random() * 0.3;
+          this.puffs.spawn(cx + (Math.random() - 0.5) * 0.3, gy + 0.12, cz + (Math.random() - 0.5) * 0.3, 0.02, 0.35, 0.01, 2.0, 0.07, 0.24, 0x4d4843);
         }
       }
-      for (const [id, m] of this.meshes) if (!seen.has(id)) { this.group.remove(m); this.meshes.delete(id); }
+      for (const bt of this.batches.values()) bt.end();
+      this.flags.count = nf; this.flags.visible = nf > 0; this.flags.instanceMatrix.needsUpdate = true; if (this.flags.instanceColor) this.flags.instanceColor.needsUpdate = true;
+      this.saws.count = ns; this.saws.visible = ns > 0; this.saws.instanceMatrix.needsUpdate = true;
+      // demolished: a puff of dust where it stood
+      for (const [id, st] of this.state) if (st.frame !== f) {
+        this.puffs.burst(st.cx, st.gy, st.cz, 0.36, 10, T.dust);
+        this.state.delete(id);
+      }
+      this.initial = false;
     }
-    clear() { for (const m of this.meshes.values()) this.group.remove(m); this.meshes.clear(); this.byTile.clear(); }
-    dispose() { this.clear(); for (const k in this.geo) this.geo[k].dispose(); this.geo = {}; this.mat.dispose(); }
+    clear() {
+      this.state.clear(); this.byTile.clear(); this.initial = true;
+      for (const bt of this.batches.values()) { bt.n = 0; bt.end(); }
+    }
+    dispose() {
+      this.clear();
+      for (const bt of this.batches.values()) bt.dispose();
+      this.batches.clear();
+      this.flags.dispose(); this.saws.dispose(); this.mat.dispose();
+    }
+    stats() { let calls = 0; for (const bt of this.batches.values()) if (bt.n) calls++; return { variants: this.batches.size, drawn: calls }; }
   }
 
   R3.Buildings = Buildings;
-  R3.BUILDING_HEIGHT = HEIGHT;
+  R3.Buildings.rotFor = rotFor;
+  R3.Buildings.palisadeMask = palisadeMask;
 })(window.R3);

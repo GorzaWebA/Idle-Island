@@ -15,8 +15,17 @@ const THEME3D = (function () {
     trunk: 0x5c4330, leafA: 0x2e6a3e, leafB: 0x3d7f49, leafC: 0x4f9150,
     // buildings
     wall: 0xe6d6ae, wallShade: 0xc7b48a, timber: 0x6e4c2f, roof: 0xb04a32, roofDark: 0x83372a,
-    thatch: 0xc9a25c, hallRoof: 0x5a4231, stone: 0xb0ab9c, stoneDark: 0x857f72, slate: 0x4a6a84,
+    thatch: 0xc9a25c, hallRoof: 0x9a6a40, stone: 0xb0ab9c, stoneDark: 0x857f72, slate: 0x4a6a84,
     log: 0x8f6a42, logEnd: 0xd8b885, canvas: 0xece2c8, gold: 0xe5b24d, ruin: 0x3a332d, char: 0x231d19,
+    wattle: 0xc8ad7c, thatchDark: 0xa8843f, windowDark: 0x34434e, plank: 0x9a6c42, shingle: 0x7d5a3c,
+    crate: 0xa77b4c, sack: 0xd8c8a0, barrel: 0x86592f, iron: 0x4a4a4f, ash: 0x6a645d, scorch: 0x5e4b3a,
+    produce: [0xc4453a, 0x8cbf5a, 0xe08a2e, 0xe8c547], banner: 0xa8362a, player: 0x2f6fa8,
+    shields: [0xc94f3d, 0x3f7fc4, 0xe3b04b],
+    // props
+    pebble: 0xb9b2a2, tuft: 0x6f9e48, tuftLight: 0x98c25e, flowers: [0xf4efe6, 0xf2cf4a, 0xb88ad6, 0xe9839a],
+    roundLeaf: 0x4f8a3e, roundLeafLight: 0x6aa24c,
+    // effects
+    smoke: 0xdcd8d0, dust: 0xd6c59c, ghostOk: 0x7fe39a, ghostWarn: 0xf0cf7a, ghostBad: 0xf08070,
     // units
     tunic: { militia: 0x9aa9b3, sword: 0x3f80c6, bow: 0x4f9f5c, pike: 0xd1a645 },
     raider: 0x9a3129, raiderDark: 0x3c2522, brute: 0x742c26, berserker: 0xad4a2e, warlord: 0x2c1c18,

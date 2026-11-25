@@ -91,10 +91,11 @@ window.R3 = window.R3 || {};
           const k = r / rows, y = e.top + (e.bot - e.top) * k;
           const [jx, jz] = jitXZ(e.x, e.z);
           let ox = 0, oz = 0;
-          if (r > 0 && r < rows) {   // rocky bulge on interior rows only, so edges stay sealed
-            const b = (R3.hash3(e.x, y, e.z) - 0.35) * 0.09;
-            ox = dx * b + (R3.hash3(e.z, y, e.x) - 0.5) * 0.04 * (dz !== 0 ? 1 : 0);
-            oz = dz * b + (R3.hash3(e.z, y, e.x) - 0.5) * 0.04 * (dx !== 0 ? 1 : 0);
+          if (r > 0 && r < rows) {
+            // Rocky bulge on interior rows only, so top and bottom edges stay sealed. It depends
+            // on position alone, so two walls sharing a corner always agree (no cracks).
+            ox = (R3.hash3(e.x, y, e.z) - 0.5) * 0.09;
+            oz = (R3.hash3(e.z, y, e.x) - 0.5) * 0.09;
           }
           return [e.x + jx + ox, y, e.z + jz + oz];
         };
@@ -125,42 +126,6 @@ window.R3 = window.R3 || {};
     return mb.geometry();
   }
 
-  // Low-poly pine: trunk plus three stacked cones. Built once and instanced.
-  function treeGeometry() {
-    const mb = new R3.MeshBuilder();
-    mb.cyl(0, 0, 0, 0.035, 0.12, 0.03, 5, T.trunk, false);
-    mb.cyl(0, 0.08, 0, 0.17, 0.3, 0, 6, T.leafA, false, 0.3);
-    mb.cyl(0, 0.2, 0, 0.13, 0.42, 0, 6, T.leafB, false, 0.8);
-    mb.cyl(0, 0.31, 0, 0.09, 0.52, 0, 6, T.leafC, false, 0.1);
-    return mb.geometry();
-  }
-
-  function buildTrees(material) {
-    const spots = [];
-    for (let tz = 0; tz < MAP_H; tz++) for (let tx = 0; tx < MAP_W; tx++) {
-      if (!hasTree(tx, tz)) continue;
-      const n = 2 + (R3.hash3(tx, 7, tz) > 0.55 ? 1 : 0);
-      for (let k = 0; k < n; k++) {
-        const ang = R3.hash3(tx, 8 + k, tz) * Math.PI * 2, rad = 0.12 + R3.hash3(tz, 9 + k, tx) * 0.22;
-        const x = tx + 0.5 + Math.cos(ang + k * 2.1) * rad, z = tz + 0.5 + Math.sin(ang + k * 2.1) * rad;
-        spots.push({ x, z, y: heightAt(x, z), s: 0.8 + R3.hash3(x, 10, z) * 0.45, r: R3.hash3(z, 11, x) * Math.PI * 2, tint: 0.85 + R3.hash3(x, 12, z) * 0.3 });
-      }
-    }
-    const geo = treeGeometry();
-    const mesh = new THREE.InstancedMesh(geo, material, Math.max(1, spots.length));
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), c = new THREE.Color();
-    spots.forEach((t, i) => {
-      q.setFromAxisAngle(up, t.r); s.set(t.s, t.s * (0.9 + (t.tint - 0.85)), t.s); p.set(t.x, t.y, t.z);
-      m.compose(p, q, s); mesh.setMatrixAt(i, m);
-      mesh.setColorAt(i, c.setRGB(t.tint, t.tint, t.tint));
-    });
-    mesh.count = spots.length;
-    mesh.castShadow = true; mesh.receiveShadow = true;
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    return mesh;
-  }
-
   // Bounds of the land, used by the camera and the sun's shadow box.
   function landBounds() {
     let x0 = MAP_W, x1 = 0, z0 = MAP_H, z1 = 0;
@@ -181,11 +146,10 @@ window.R3 = window.R3 || {};
       land.castShadow = true; land.receiveShadow = true;
       const bed = new THREE.Mesh(buildSeabed(), mat);
       bed.receiveShadow = true;
-      const trees = buildTrees(mat);
-      group.add(land, bed, trees);
+      group.add(land, bed);
       return {
-        group, trees, triangles: (land.geometry.attributes.position.count + trees.geometry.attributes.position.count * trees.count) / 3,
-        dispose() { land.geometry.dispose(); bed.geometry.dispose(); trees.geometry.dispose(); trees.dispose(); mat.dispose(); }
+        group, triangles: land.geometry.attributes.position.count / 3,
+        dispose() { land.geometry.dispose(); bed.geometry.dispose(); mat.dispose(); }
       };
     }
   };

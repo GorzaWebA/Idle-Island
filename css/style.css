@@ -137,6 +137,15 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
 .stage.is-3d::after { z-index: 1; }
 .stage-banner, .stage-hover, .stage-zoom, .stage-paused { z-index: 2; }
 .zoom-btn svg { display: block; }
+/* Label above the building being placed: what it yields, or why it can't go there. */
+.ghost-chip {
+  position: absolute; left: 0; top: 0; z-index: 2; pointer-events: none; white-space: nowrap;
+  font: 600 12px/1 var(--font-ui); padding: 5px 8px; border-radius: 4px;
+  background: rgba(12, 22, 26, 0.85); color: #f4ecd8; border-bottom: 2px solid #7fe39a;
+  font-variant-numeric: tabular-nums; will-change: transform;
+}
+.ghost-chip.warn { border-bottom-color: #f0cf7a; }
+.ghost-chip.bad { border-bottom-color: #f08070; color: #ffd6cf; }
 .stage-banner {
   position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
   display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center;
