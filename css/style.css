@@ -44,7 +44,7 @@
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
-  margin: 0; background: var(--bg); color: var(--ink);
+  margin: 0; overflow: hidden; overscroll-behavior: none; background: var(--bg); color: var(--ink);
   font: 15px/1.4 var(--font-ui); -webkit-font-smoothing: antialiased;
 }
 button { font: inherit; color: inherit; }
@@ -121,8 +121,11 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
 .btn-primary .cost i::before { box-shadow: 0 0 0 1.5px var(--accent-ink); }
 
 /* ---------- layout ---------- */
-.layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; min-height: 0; }
-.stage { position: relative; background: var(--sea); min-height: 0; overflow: hidden; touch-action: manipulation; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; min-height: 0; position: relative; }
+.stage {
+  position: relative; background: var(--sea); min-height: 0; overflow: hidden;
+  touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+}
 .stage canvas { position: absolute; inset: 0; display: block; cursor: pointer; }
 .stage-banner {
   position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
@@ -139,8 +142,21 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
   position: absolute; left: 12px; background: rgba(12, 22, 26, 0.8); color: #efe7d4; font-size: 13px;
   padding: 6px 10px; border-radius: var(--radius); pointer-events: none; max-width: calc(100% - 24px);
 }
-.stage-mode { top: 12px; border-left: 3px solid #f2c94c; }
-.stage-hover { bottom: 12px; }
+/* The mode bar sits outside the stage in the DOM; on wide layouts it floats over the map's top-left. */
+.stage-mode { top: 12px; z-index: 3; border-left: 3px solid #f2c94c; display: flex; align-items: center; gap: 10px; max-width: min(560px, calc(100% - 404px)); }
+.stage-hover { bottom: 12px; max-width: calc(100% - 76px); }
+.mode-cancel {
+  pointer-events: auto; flex: none; border: 0; border-radius: 4px; padding: 4px 10px; cursor: pointer;
+  background: #f4ecd8; color: #1c272c; font-weight: 700; font-size: 13px;
+}
+.stage-zoom { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
+.zoom-btn {
+  width: 36px; height: 36px; display: grid; place-items: center; cursor: pointer; padding: 0;
+  border: 1px solid rgba(244, 236, 216, 0.35); border-radius: 8px; background: rgba(12, 22, 26, 0.78);
+  color: #f4ecd8; font-size: 21px; font-weight: 600; line-height: 1;
+}
+.zoom-btn:hover { background: rgba(12, 22, 26, 0.92); }
+.zoom-btn[aria-disabled="true"] { opacity: 0.4; }
 .stage-paused {
   position: absolute; inset: 0; display: grid; place-items: center; background: rgba(10, 20, 24, 0.35);
   color: #f4ecd8; font-family: var(--font-display); font-size: 40px; font-weight: 700; letter-spacing: 0.04em; pointer-events: none;
@@ -213,6 +229,8 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
 .promote { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .promote .btn { flex-direction: column; gap: 1px; padding: 6px 4px; white-space: normal; line-height: 1.15; }
 .promote small { font-weight: 500; color: var(--muted); font-size: 11px; }
+.squad-detail { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.35; }
+.squad-detail b { color: var(--ink); font-weight: 600; }
 
 .saga { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
 .saga:first-of-type { border-top: 0; }
@@ -243,26 +261,88 @@ kbd { font: 600 12px var(--font-ui); border: 1px solid var(--line); border-botto
 .modal .stats { grid-template-columns: repeat(2, 1fr); font-size: 15px; }
 .modal .btn { align-self: flex-start; }
 
-/* ---------- narrow screens ---------- */
+/* ---------- tablets and phones: map pinned on top, panel scrolls underneath ---------- */
 @media (max-width: 960px) {
-  html, body { height: auto; }
-  #app { height: auto; display: block; }
-  .layout { display: flex; flex-direction: column; }
-  .stage { height: auto; aspect-ratio: 3 / 2; max-height: 72vh; min-height: 240px; }
-  .panel { border-left: 0; border-top: 1px solid var(--line); }
-  .panel-body { overflow: visible; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
-  .tabs { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); overflow-x: auto; }
+  #app { display: flex; flex-direction: column; height: 100%; }
+  .layout { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .stage { flex: none; height: clamp(220px, 42vh, 560px); height: clamp(220px, 42dvh, 560px); }
+  .panel { flex: 1; min-height: 0; border-left: 0; border-top: 1px solid var(--line); }
+  .panel-body {
+    overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  }
+  .tabs { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); overflow-x: auto; flex: none; }
+  .hint { flex: none; }
   .wavebox { margin-left: 0; }
+  .stage-mode { max-width: calc(100% - 24px); }
 }
-@media (max-width: 520px) {
-  .topbar { gap: 8px 14px; }
-  .brand-name { font-size: 22px; }
-  .resources { gap: 12px; }
+/* Phones held sideways: map and panel side by side. */
+@media (max-width: 960px) and (orientation: landscape) and (max-height: 560px) {
+  .topbar { padding-block: 5px; gap: 4px 16px; }
+  .brand-name { font-size: 20px; }
+  .trait-chip { display: none; }
+  .wave-num { font-size: 24px; }
+  .layout { flex-direction: row; }
+  .stage { flex: 1; height: auto; }
+  .panel { flex: none; width: min(340px, 44vw); border-top: 0; border-left: 1px solid var(--line); }
+  .hint { margin-top: 8px; font-size: 13px; padding: 6px 10px; }
+  .tabs { padding-top: 4px; }
+  .panel-body { padding-left: 14px; padding-right: max(14px, env(safe-area-inset-right, 0px)); }
+  .stage-mode { max-width: calc(100% - min(340px, 44vw) - 24px); }
+}
+/* Phones held upright: a three-row header. */
+@media (max-width: 600px) {
+  .topbar {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "brand controls" "res res" "wave wave";
+    gap: 6px 10px; padding-block: 8px 7px;
+  }
+  .brand { grid-area: brand; align-self: center; }
+  .brand-name { font-size: 21px; }
+  .trait-chip { display: none; }
+  .controls { grid-area: controls; }
+  .seg { padding: 6px 9px; }
+  .resources { grid-area: res; gap: 16px; }
   .res-val { font-size: 16px; }
-  .wave-num { font-size: 26px; }
-  .wave-sub { min-width: 0; }
+  .res-rate { font-size: 12px; }
+  .wavebox { grid-area: wave; margin-left: 0; flex-wrap: nowrap; gap: 10px; min-width: 0; }
+  .wave-main { flex-direction: column; align-items: flex-start; gap: 0; }
+  .wave-label { font-size: 10px; }
+  .wave-num { font-size: 24px; }
+  .wave-sub { min-width: 0; flex: 1; font-size: 12.5px; }
+  .wave-sub span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wave-actions { flex: none; }
   .blist { grid-template-columns: 1fr; }
-  .stage { aspect-ratio: 4 / 3; }
+  .stage-banner { top: 8px; padding: 7px 14px; }
+  .stage-banner strong { font-size: 20px; }
+  .stage-banner span { font-size: 12.5px; }
+  .stage-hover { left: 8px; font-size: 12px; bottom: 8px; max-width: calc(100% - 66px); }
+  /* Upright phones: the mode bar becomes a strip under the map so it never covers a tile. */
+  .stage-mode {
+    position: static; flex: none; max-width: none; border-radius: 0; border-left: 0; border-bottom: 3px solid #f2c94c;
+    justify-content: space-between; font-size: 13px; padding: 6px max(16px, env(safe-area-inset-right, 0px)) 6px max(16px, env(safe-area-inset-left, 0px));
+  }
+  .stage-zoom { right: 8px; bottom: 8px; }
+  .stage-paused { font-size: 30px; }
+}
+/* Small phones: give the panel room by trimming the map and hiding the hint. */
+@media (max-width: 600px) and (max-height: 700px) {
+  .stage { height: clamp(180px, 36vh, 560px); height: clamp(180px, 36dvh, 560px); }
+  .hint { display: none; }
+  .wave-best { display: none; }
+}
+/* Finger-sized controls on touch screens. */
+@media (pointer: coarse) {
+  .btn { min-height: 42px; }
+  .btn-small { min-height: 38px; padding-inline: 12px; }
+  .seg { min-height: 36px; min-width: 38px; }
+  .toggle { min-height: 36px; }
+  .tab { padding: 11px 12px 12px; }
+  .bopt { padding: 11px 12px; }
+  .zoom-btn { width: 42px; height: 42px; }
+  .mode-cancel { padding: 7px 12px; }
+  .saga { padding: 12px 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   .stage-banner { animation: none; }
