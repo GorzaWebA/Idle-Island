@@ -1,6 +1,17 @@
 'use strict';
 /* Boot, main loop, autosave and offline catch-up. */
 
+// The active renderer (see the VIEW interface in js/render3d.js).
+let VIEW = null;
+
+// 3D unless the page asks for the classic map (?2d) or WebGL is unavailable.
+function chooseView(stage) {
+  const want2d = /(?:^|[?&])2d(?:&|=|$)/.test(location.search);
+  if (!want2d && window.R3 && R3.view && typeof THREE !== 'undefined' && R3.view.init(stage)) return { view: R3.view, fellBack: false };
+  VIEW2D.init(stage);
+  return { view: VIEW2D, fellBack: !want2d };
+}
+
 function showOffline(g) {
   const stat = (k, v) => '<div><span class="k">' + k + '</span><span class="v">' + v + '</span></div>';
   showModal('While you were away',
@@ -20,18 +31,21 @@ function start(data) {
     G = null; newGame();
     logEvent('Settlers come ashore on a ' + islandTrait(G.island.trait).name.toLowerCase() + ' isle.');
   }
-  initRender($('cv'));
+  const stage = $('stage');
+  const chosen = chooseView(stage);
+  VIEW = chosen.view;
   resetRuntime();
   initUI();
+  if (chosen.fellBack) setBanner('Classic map', 'This browser can\'t show the 3D island, so the flat map is shown instead.', 'bad');
 
   if (loaded && !(data && data.save)) {
     const away = (Date.now() - G.lastSave) / 1000;
     if (away > 60) showOffline(applyOffline(away));
   }
 
-  const stage = $('stage');
-  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => resizeRender()).observe(stage);
-  window.addEventListener('resize', resizeRender);
+  const onResize = () => VIEW.resize();
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(onResize).observe(stage);
+  window.addEventListener('resize', onResize);
 
   setInterval(saveGame, 15000);
   let hiddenAt = 0;
@@ -54,10 +68,10 @@ function start(data) {
     if (!G.paused) {
       acc += dt * G.speed;
       let n = 0;
-      while (acc >= STEP && n < 30) { step(STEP); acc -= STEP; n++; }
+      while (acc >= STEP && n < 30) { VIEW.beforeStep(); step(STEP); acc -= STEP; n++; }
       if (n >= 30) acc = 0;
     }
-    render(dt);
+    VIEW.frame(dt, G.paused ? 1 : acc / STEP);
     updateHeader();
     panelT -= dt;
     if (panelT <= 0) { panelT = 0.2; renderPanel(); }

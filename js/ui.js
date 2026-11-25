@@ -331,7 +331,7 @@ function updateHeader() {
   setHidden($('mode-line'), !mode);
   setText($('mode-text'), mode);
   setHidden($('mode-cancel'), !cancellable);
-  setAttr($('zoom-out'), 'aria-disabled', String(!(R.zoom > 1.001)));
+  setAttr($('zoom-out'), 'aria-disabled', String(!VIEW.canZoomOut()));
   const hv = hoverText();
   setHidden($('hover-line'), !hv);
   setText($('hover-line'), hv);
@@ -373,12 +373,12 @@ function cancelModes() {
 }
 
 function canvasPoint(e) {
-  const r = R.canvas.getBoundingClientRect();
+  const r = VIEW.canvas.getBoundingClientRect();
   return { x: e.clientX - r.left, y: e.clientY - r.top };
 }
 
 function onCanvasClick(mx, my) {
-  const tile = pickTile(mx, my);
+  const tile = VIEW.pickTile(mx, my);
   if (UI.placing) {
     if (!tile) return;
     // On touch screens the first tap only previews the spot.
@@ -396,7 +396,7 @@ function onCanvasClick(mx, my) {
     renderPanel();
     return;
   }
-  const sq = pickSquadAt(mx, my, isTouch() ? Math.max(R.T * 0.6, 22) : R.T * 0.4);
+  const sq = VIEW.pickSquadAt(mx, my, isTouch());
   if (sq) {
     UI.selSq = UI.selSq === sq.id ? null : sq.id;
     UI.selB = null; UI.tab = 'squads';
@@ -425,8 +425,9 @@ function doAction(act, arg, ev) {
     case 'build': UI.placing = UI.placing === arg ? null : arg; UI.pending = null; UI.selB = null; UI.selSq = null; break;
     case 'cancel-place': UI.placing = null; UI.pending = null; break;
     case 'cancel-modes': cancelModes(); UI.selB = null; break;
-    case 'zoom-in': zoomAt(R.w / 2, R.h / 2, R.zoom * 1.5); break;
-    case 'zoom-out': zoomAt(R.w / 2, R.h / 2, R.zoom / 1.5 < 1.1 ? 1 : R.zoom / 1.5); break;
+    case 'zoom-in': VIEW.zoomBy(1.5); break;
+    case 'zoom-out': VIEW.zoomBy(1 / 1.5); break;
+    case 'recentre': VIEW.recentre(); break;
     case 'select-hall': { const h = hallBuilding(); UI.selB = h ? h.id : null; break; }
     case 'hall-up': { const h = hallBuilding(); if (h && upgradeBuilding(h)) saveGame(); break; }
     case 'b-up': { const b = buildingById(+arg); if (b) upgradeBuilding(b); break; }
@@ -498,7 +499,21 @@ function showModal(title, html) {
 /* Map input: taps and clicks, drag to pan, pinch or wheel to zoom.
    Taps are detected from pointer events (not 'click'), which behaves the same on every device. */
 function initCanvasInput() {
-  const cv = R.canvas;
+  if (VIEW.bindInput) {
+    // 3D: the camera rig owns drag, pinch and wheel; it reports taps and hovers back here.
+    VIEW.bindInput({
+      onDown(type, mx, my) {
+        UI.lastPointer = type;
+        if (type !== 'mouse' && !UI.placing) UI.hover = VIEW.pickTile(mx, my);
+      },
+      onHover(mx, my) { UI.hover = VIEW.pickTile(mx, my); },
+      onLeave() { UI.hover = null; },
+      onTap(mx, my) { onCanvasClick(mx, my); },
+      onCancel() { cancelModes(); UI.selB = null; renderPanel(); }
+    });
+    return;
+  }
+  const cv = VIEW.canvas;
   const pts = new Map();
   let pinch = null, drag = null, multi = false;
   cv.addEventListener('pointerdown', e => {

@@ -127,6 +127,16 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
   touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
 }
 .stage canvas { position: absolute; inset: 0; display: block; cursor: pointer; }
+/* 3D map: grab cursor for orbiting, and a soft vignette for the diorama look. */
+.stage.is-3d canvas { cursor: grab; }
+.stage.is-3d canvas:active { cursor: grabbing; }
+.stage.is-3d::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 45%, rgba(0, 0, 0, 0) 55%, rgba(8, 20, 26, 0.32) 100%);
+}
+.stage.is-3d::after { z-index: 1; }
+.stage-banner, .stage-hover, .stage-zoom, .stage-paused { z-index: 2; }
+.zoom-btn svg { display: block; }
 .stage-banner {
   position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
   display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center;

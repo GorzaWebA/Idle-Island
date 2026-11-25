@@ -679,3 +679,22 @@ function pickSquadAt(mx, my, radius) {
   }
   return best;
 }
+
+/* ---------- VIEW interface (see js/render3d.js): the 2D map as a fallback renderer ---------- */
+const VIEW2D = {
+  kind: '2d', canvas: null,
+  init() { this.canvas = document.getElementById('cv'); initRender(this.canvas); return true; },
+  resize() { resizeRender(); },
+  beforeStep() {},
+  frame(dt) { render(dt); },
+  pickTile(mx, my) { return pickTile(mx, my); },
+  pickSquadAt(mx, my, touch) { return pickSquadAt(mx, my, touch ? Math.max(R.T * 0.6, 22) : R.T * 0.4); },
+  tileToScreen(x, y) {
+    const h = VH[tileType(x, y)];
+    return { x: R.ox + (x + 0.5) * R.T, y: R.oy + y * R.TH - h * R.HZ + R.TH * 0.5 };
+  },
+  zoomBy(f) { const z = R.zoom * f; zoomAt(R.w / 2, R.h / 2, z < 1.1 ? 1 : z); },
+  canZoomOut() { return R.zoom > 1.001; },
+  recentre() { zoomAt(R.w / 2, R.h / 2, 1); },
+  bindInput: null
+};
