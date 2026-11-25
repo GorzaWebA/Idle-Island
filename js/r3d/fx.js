@@ -9,9 +9,9 @@ window.R3 = window.R3 || {};
   class Puffs {
     constructor(scene, max) {
       this.max = max;
-      const geo = new THREE.IcosahedronGeometry(0.5, 0);
+      const geo = new THREE.IcosahedronGeometry(0.5, 1);
       // Unlit and see-through, so puffs read as smoke and dust rather than floating stones.
-      this.mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.5, depthWrite: false });
+      this.mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.42, depthWrite: false });
       this.mesh = new THREE.InstancedMesh(geo, this.mat, max);
       this.mesh.count = 0; this.mesh.frustumCulled = false; this.mesh.renderOrder = 3;
       this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -71,5 +71,51 @@ window.R3 = window.R3 || {};
     dispose() { this.mesh.geometry.dispose(); this.mesh.dispose(); this.mat.dispose(); }
   }
 
+  /* Expanding rings on the ground (shield bash, volley impact, splash). Additive blending lets a
+     ring fade by dimming its colour to black, so one draw call covers them all. */
+  class Rings {
+    constructor(scene, max) {
+      this.max = max;
+      this.mat = new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+      this.mesh = new THREE.InstancedMesh(R3.UnitModels.ring(), this.mat, max);
+      this.mesh.count = 0; this.mesh.frustumCulled = false; this.mesh.renderOrder = 4;
+      this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      this.mesh.setColorAt(0, _c.set(0xffffff));
+      scene.add(this.mesh);
+      const f = n => new Float32Array(max * n);
+      this.pos = f(3); this.col = f(3); this.age = f(1); this.life = f(1); this.r0 = f(1); this.r1 = f(1);
+      this.alive = new Uint8Array(max); this.cursor = 0;
+    }
+    spawn(x, y, z, r0, r1, life, hex) {
+      let i = -1;
+      for (let k = 0; k < this.max; k++) { const j = (this.cursor + k) % this.max; if (!this.alive[j]) { i = j; break; } }
+      if (i < 0) i = this.cursor;
+      this.cursor = (i + 1) % this.max;
+      this.alive[i] = 1; this.age[i] = 0; this.life[i] = life; this.r0[i] = r0; this.r1[i] = r1;
+      this.pos[i * 3] = x; this.pos[i * 3 + 1] = y; this.pos[i * 3 + 2] = z;
+      _c.setHex(hex); this.col[i * 3] = _c.r; this.col[i * 3 + 1] = _c.g; this.col[i * 3 + 2] = _c.b;
+    }
+    update(dt) {
+      let n = 0;
+      for (let i = 0; i < this.max; i++) {
+        if (!this.alive[i]) continue;
+        const k = (this.age[i] += dt) / this.life[i];
+        if (k >= 1) { this.alive[i] = 0; continue; }
+        const e = 1 - (1 - k) * (1 - k), r = this.r0[i] + (this.r1[i] - this.r0[i]) * e, f = 1 - k;
+        _p.set(this.pos[i * 3], this.pos[i * 3 + 1], this.pos[i * 3 + 2]); _q.identity(); _s.set(r, 1, r);
+        _m.compose(_p, _q, _s);
+        this.mesh.setMatrixAt(n, _m);
+        this.mesh.setColorAt(n, _c.setRGB(this.col[i * 3] * f, this.col[i * 3 + 1] * f, this.col[i * 3 + 2] * f));
+        n++;
+      }
+      this.mesh.count = n; this.mesh.visible = n > 0;
+      this.mesh.instanceMatrix.needsUpdate = true;
+      if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    }
+    clear() { this.alive.fill(0); this.mesh.count = 0; }
+    dispose() { this.mesh.geometry.dispose(); this.mesh.dispose(); this.mat.dispose(); }
+  }
+
   R3.Puffs = Puffs;
+  R3.Rings = Rings;
 })(window.R3);

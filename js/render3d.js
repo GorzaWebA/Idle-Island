@@ -63,10 +63,14 @@ window.R3 = window.R3 || {};
       this.picker = new R3.Picker(this.camera, canvas);
       this.rig.groundPick = (mx, my) => this.picker.ground(mx, my);
       this.puffs = new R3.Puffs(this.scene, this.mobile ? 240 : 400);
+      this.rings = new R3.Rings(this.scene, 48);
+      const fx = { puffs: this.puffs, rings: this.rings };
       this.propMats = R3.Props.materials(this.wind);
       this.buildings = new R3.Buildings(this.scene, this.puffs);
       this.picker.extraTop = (x, z) => this.buildings.heightOn(x, z);
-      this.units = new R3.Units(this.scene);
+      this.units = new R3.Units(this.scene, fx);
+      this.units.onBossHit = a => this.rig.shake(a);
+      this.missiles = new R3.Missiles(this.scene, fx);
       this.overlay = new R3.Overlay(this.scene, this.buildings, this.picker);
       this.occupied = tile => this.buildings.byTile.has(tile);
 
@@ -86,7 +90,7 @@ window.R3 = window.R3 || {};
       if (this.terrain) { this.scene.remove(this.terrain.group); this.terrain.dispose(); }
       if (this.sea) { this.scene.remove(this.sea.mesh); this.sea.dispose(); }
       if (this.props) { this.scene.remove(this.props.group); this.props.dispose(); }
-      this.buildings.clear(); this.units.clear(); this.puffs.clear();
+      this.buildings.clear(); this.units.clear(); this.puffs.clear(); this.rings.clear();
       this.terrain = R3.Terrain.build();
       this.sea = R3.Sea.build(THEME3D.current());
       this.props = R3.Props.build(this.propMats);
@@ -148,7 +152,9 @@ window.R3 = window.R3 || {};
       for (const b of G.buildings) key = (key * 31 + b.y * MAP_W + b.x + 1) | 0;
       this.props.update(key, this.occupied);
       this.units.sync(alpha === undefined ? 1 : alpha, dt);
+      this.missiles.sync(alpha === undefined ? 1 : alpha, dt);
       this.puffs.update(dt);
+      this.rings.update(dt);
       this.overlay.update();
       this.renderer.render(this.scene, this.camera);
     },

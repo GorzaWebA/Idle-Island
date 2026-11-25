@@ -145,6 +145,45 @@ window.R3 = window.R3 || {};
     }
   }
 
+  /* A growable InstancedMesh: begin(), add(matrix, colour) as many times as needed, end(). */
+  const _bm = new THREE.Matrix4(), _bc = new THREE.Color();
+  class Batch {
+    constructor(parent, geo, mat, cap, opts) {
+      this.parent = parent; this.geo = geo; this.mat = mat; this.opts = opts || {}; this.n = 0;
+      this.make(cap || 16);
+    }
+    make(cap) {
+      const old = this.mesh;
+      this.cap = cap;
+      const m = this.mesh = new THREE.InstancedMesh(this.geo, this.mat, cap);
+      m.castShadow = !!this.opts.shadow; m.receiveShadow = this.opts.receive !== false; m.frustumCulled = false;
+      if (this.opts.order !== undefined) m.renderOrder = this.opts.order;
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      m.setColorAt(0, _bc.setRGB(1, 1, 1));
+      m.count = 0;
+      this.parent.add(m);
+      if (old) {
+        for (let i = 0; i < this.n; i++) { old.getMatrixAt(i, _bm); m.setMatrixAt(i, _bm); old.getColorAt(i, _bc); m.setColorAt(i, _bc); }
+        this.parent.remove(old); old.dispose();
+      }
+    }
+    begin() { this.n = 0; }
+    add(matrix, color) {
+      if (this.n >= this.cap) this.make(this.cap * 2);
+      this.mesh.setMatrixAt(this.n, matrix);
+      this.mesh.setColorAt(this.n, color);
+      this.n++;
+    }
+    end() {
+      const m = this.mesh;
+      m.count = this.n; m.visible = this.n > 0;
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    }
+    dispose() { this.parent.remove(this.mesh); this.mesh.dispose(); }
+  }
+  R3.Batch = Batch;
+
   R3.col = col;
   R3.mixCol = mixCol;
   R3.scaleCol = scaleCol;

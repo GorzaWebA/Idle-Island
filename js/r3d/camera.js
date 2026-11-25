@@ -19,7 +19,13 @@ window.R3 = window.R3 || {};
       this.pointers = new Map(); this.gesture = null; this.listeners = [];
       this.groundPick = null;     // (mx, my) -> Vector3 on the ground, set by the renderer
       this._v = new THREE.Vector3(); this._w = new THREE.Vector3();
+      this.shakeAmp = 0;
+      this.reducedMotion = false;
+      try { const mq = window.matchMedia('(prefers-reduced-motion: reduce)'); this.reducedMotion = mq.matches; mq.addEventListener('change', e => { this.reducedMotion = e.matches; }); } catch (e) { /* old browser */ }
     }
+
+    // A short camera shake (boss blows). Skipped when the system asks for reduced motion.
+    shake(amount) { if (!this.reducedMotion) this.shakeAmp = Math.max(this.shakeAmp, amount); }
 
     setBounds(b) { this.bounds = b; }
 
@@ -124,6 +130,11 @@ window.R3 = window.R3 || {};
       this.pitch += (this.gPitch - this.pitch) * a;
       this.dist += (this.gDist - this.dist) * a;
       this.apply();
+      if (this.shakeAmp > 0.001) {
+        const k = this.shakeAmp * Math.min(1, this.dist / 15);
+        this.camera.position.x += (Math.random() - 0.5) * k; this.camera.position.y += (Math.random() - 0.5) * k; this.camera.position.z += (Math.random() - 0.5) * k;
+        this.shakeAmp *= Math.exp(-dt * 7);
+      } else this.shakeAmp = 0;
     }
 
     /* ---------- input ---------- */

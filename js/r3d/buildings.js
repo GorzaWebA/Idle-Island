@@ -151,8 +151,8 @@ window.R3 = window.R3 || {};
             ns++;
           }
           if (model.smoke.length && (st.smoke -= dt) <= 0) {
-            st.smoke = 0.55 + Math.random() * 0.5;
-            for (const sm of model.smoke) this.puffs.spawn(wx(sm[0], sm[2]), gy + sm[1], wz(sm[0], sm[2]), 0.05, 0.28, 0.03, 2.4, 0.05, 0.17, T.smoke);
+            st.smoke = 0.9 + Math.random() * 0.8;
+            for (const sm of model.smoke) this.puffs.spawn(wx(sm[0], sm[2]), gy + sm[1], wz(sm[0], sm[2]), 0.03, 0.22, 0.02, 2.0, 0.035, 0.11, T.smoke);
           }
         } else if (b.ruined && b.rebuild <= 0 && (st.smoke -= dt) <= 0) {
           // a smouldering ruin (fire arrives in phase 4)

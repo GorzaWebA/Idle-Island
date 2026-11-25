@@ -21,6 +21,11 @@ const THEME3D = (function () {
     crate: 0xa77b4c, sack: 0xd8c8a0, barrel: 0x86592f, iron: 0x4a4a4f, ash: 0x6a645d, scorch: 0x5e4b3a,
     produce: [0xc4453a, 0x8cbf5a, 0xe08a2e, 0xe8c547], banner: 0xa8362a, player: 0x2f6fa8,
     shields: [0xc94f3d, 0x3f7fc4, 0xe3b04b],
+    // figures
+    trousers: 0x4a3b30, boots: 0x2e241d, beard: 0x7a4a2a, beardRed: 0xb5552b, beardGrey: 0xa39d92, fur: 0x6b5038,
+    mail: 0x8c9197, hoodGreen: 0x3d6b39, hoodRaider: 0x5e3326, felt: 0x6e5c48, warPaint: 0xb32a20, hair: 0xc0612a,
+    cape: 0x92261f, darkSteel: 0x3e4148, shieldBlue: 0x2f67a8, shieldWood: 0x8c6a45, horn: 0xe8dcc2,
+    arrowShaft: 0x9c7a52, fletch: 0xf0ebe0,
     // props
     pebble: 0xb9b2a2, tuft: 0x6f9e48, tuftLight: 0x98c25e, flowers: [0xf4efe6, 0xf2cf4a, 0xb88ad6, 0xe9839a],
     roundLeaf: 0x4f8a3e, roundLeafLight: 0x6aa24c,

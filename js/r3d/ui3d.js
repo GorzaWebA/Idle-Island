@@ -94,6 +94,31 @@ window.R3 = window.R3 || {};
       this.chip = document.getElementById('ghost-chip');
       this.chipText = ''; this.chipCls = '';
       this._o = {};
+      this.floatBox = document.getElementById('floaters');
+      this.floatEls = [];
+    }
+    // Gold and status numbers rising from the battle (the sim's RT.floaters), as pooled labels.
+    updateFloaters() {
+      if (!this.floatBox) return;
+      const list = RT ? RT.floaters : [], max = 24;
+      let i = 0;
+      for (const f of list) {
+        if (i >= max) break;
+        // the sim drifts floaters north as they age; undo that and rise straight up instead
+        const x = f.x, z = f.y + f.t * 0.5 + 0.3;
+        const y = Math.max(0, R3.Terrain.heightAt(x, z)) + 0.32 + f.t * 0.45;
+        const o = this.picker.project(x, y, z, this._o);
+        if (o.behind) continue;
+        let el = this.floatEls[i];
+        if (!el) { el = document.createElement('span'); el.className = 'floater'; this.floatBox.appendChild(el); this.floatEls[i] = el; el._t = ''; el._c = ''; }
+        if (el._t !== f.text) { el.textContent = f.text; el._t = f.text; }
+        if (el._c !== f.color) { el.style.color = f.color; el._c = f.color; }
+        el.style.transform = 'translate(' + Math.round(o.x) + 'px,' + Math.round(o.y) + 'px) translate(-50%, -50%)';
+        el.style.opacity = String(Math.max(0, Math.min(1, 1.3 - f.t)));
+        if (el.hidden) el.hidden = false;
+        i++;
+      }
+      for (; i < this.floatEls.length; i++) if (!this.floatEls[i].hidden) this.floatEls[i].hidden = true;
     }
     setChip(text, cls, x, y) {
       const c = this.chip;
@@ -144,6 +169,7 @@ window.R3 = window.R3 || {};
       this.ghost.visible = ghost;
       if (!ring) this.ring.hide();
       if (!chip) this.setChip('');
+      this.updateFloaters();
     }
     dispose() { this.hover.dispose(); this.sel.dispose(); this.ring.dispose(); this.ghostMat.dispose(); }
   }

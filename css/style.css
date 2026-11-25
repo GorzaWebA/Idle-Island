@@ -146,6 +146,13 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
 }
 .ghost-chip.warn { border-bottom-color: #f0cf7a; }
 .ghost-chip.bad { border-bottom-color: #f08070; color: #ffd6cf; }
+/* Gold and status numbers rising from the 3D battle. */
+.floaters { position: absolute; inset: 0; pointer-events: none; z-index: 2; overflow: hidden; }
+.floater {
+  position: absolute; left: 0; top: 0; white-space: nowrap; will-change: transform, opacity;
+  font: 700 13px/1 var(--font-ui); font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7), 0 0 4px rgba(0, 0, 0, 0.45);
+}
 .stage-banner {
   position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
   display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center;
