@@ -233,7 +233,9 @@ unchanged and still runs headless; the renderer only reads it.
 | `js/r3d/buildings.js` | Draws buildings as one `InstancedMesh` per model variant; construction, tier-up, hit flash, collapse, chimney smoke, flags, saws |
 | `js/r3d/props.js` | Pines and round trees that sway in a shared wind, rocks and sea stacks, grass tufts, flowers (five instanced draw calls) |
 | `js/r3d/fx.js` | Pooled particles (typed arrays, no per-frame allocation): smoke, dust, ash |
-| `js/r3d/units.js` | Units and boats, interpolated between sim steps |
+| `js/r3d/unitmodels.js` | Figures (a body per kind, arms, legs, weapons, shields, banner), the longboat and its oars, arrows, blob shadows, rings |
+| `js/r3d/units.js` | Animated figures and longboats, interpolated between sim steps |
+| `js/r3d/missiles.js` | Arrows along the sim's arcs with streaks, fire arrows, volleys, and reactions to sim effects (hits, bashes, splashes) |
 | `js/r3d/ui3d.js` | Tile highlight, selection outline, placement ghost with its yield label, range ring draped over the terrain |
 | `js/theme3d.js` | All colours. Light and dark variants change only sky, sun and sea, so a theme switch never rebuilds geometry |
 
@@ -270,6 +272,50 @@ at 3 and 6):
   reason, and watchtowers show their range ring.
 * Small buildings get a random quarter turn per tile (stable for a given island). The Hall,
   towers and palisades stay square to the map.
+
+### Units and combat
+
+* **Figures** are split into parts so instancing can animate them: a body (torso, head and
+  headgear, one variant per kind), two arms, two legs and up to two held items. Each part type is
+  one `InstancedMesh`, so 40 fighters cost about a dozen draw calls. Arms and legs take their
+  colour per instance (sleeves and trousers).
+
+  | Kind | Look | Held |
+  | --- | --- | --- |
+  | Militia | Grey tunic, felt cap | Club |
+  | Shieldbearers | Blue tunic, round steel helmet | Sword, blue round shield |
+  | Bowmen | Green tunic and hood, quiver | Bow |
+  | Pikemen | Gold tunic, brimmed kettle helmet | Long pike, levelled |
+  | Raider | Red tunic, fur collar, conical helmet, beard | Axe |
+  | Skirmisher | Brown hood, quiver of fire arrows | Bow |
+  | Shieldman | Mail, helmet with nasal | Axe, wooden round shield |
+  | Brute | 1.6× size, fur cape, long beard | Great axe |
+  | Berserker | Bare chest with war paint, red hair, lean | An axe in each hand |
+  | Warlord | 1.9× size, dark armour, red cape, horned helmet with a gold crown | Great axe |
+
+* **Commanders** (slot 0) carry a banner in their squad's colour. Every figure has a soft blob
+  shadow, which reads better than shadow-mapping figures this small and costs one draw call.
+* **Animation** is procedural:
+  * Strides are tied to distance walked, so feet don't slide.
+  * Each stance has its own attack: an overhead melee swing, a shield held up, a pike thrust,
+    and a bow drawn and loosed.
+  * Hits make a figure lean back and flash. Knockback throws it back with a hop and arms flung up.
+  * Raiders leap from their longboat to the beach, and new soldiers pop in.
+  * The slain fall backwards and sink into the ground. The drowned sink with a splash ring.
+    Fleeing raiders shrink away.
+* **Longboats** have plank strakes, curled prow and stern, shields along both sides, a striped
+  sail (dark with gold for the Warlord's boat) and eight oars. The boats:
+  * row and leave a wake
+  * bob and roll
+  * raise their oars while the crew climbs out
+  * swing round to leave
+* **Missiles** fly the sim's own arcs and are extrapolated within a step, so they glide. Arrows
+  point along their flight with a faint streak. Fire arrows glow and drop sparks, and volleys
+  rain onto their area.
+* **Effects**: sparks on hits, shockwave rings on shield bashes, dust and a ring where a volley
+  lands, embers when a building falls, a green ring when a squad refills.
+* **Feedback**: gold numbers rise from kills as pooled screen labels. Warlord blows shake the
+  camera, unless the system asks for reduced motion.
 
 ### The VIEW interface
 
@@ -311,8 +357,9 @@ The renderer derives what the sim doesn't store:
   between the last two 20 Hz steps.
 * **Facing.** The sim only has a left/right `face`, so the heading comes from movement, or from
   the target when standing still, then eases round.
-* **Animation triggers.** Attacks show as jumps in `cdT` and hits as `flash`. Deaths are units
-  leaving `RT.units` (Phase 3 may add a small event hook for those).
+* **Animation triggers.** Attacks show as jumps in `cdT` and hits as `flash`. A unit that leaves
+  `RT.units` fell if its `hp` is at or below zero, drowned if it stands over water, and simply
+  fades if it was `fleeing`. No sim hook was needed.
 
 Its own per-unit state lives in Maps keyed by id. It never writes to sim objects.
 

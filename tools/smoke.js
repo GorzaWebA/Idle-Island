@@ -179,10 +179,131 @@ async function tilePoint(page, x, y) {
     });
     await page.click('[data-act="tab"][data-arg="squads"]');
     await page.waitForTimeout(400);
-    const probe = await page.evaluate(() => ({ p: VIEW.probe(), raiders: RT.units.filter(u => u.side === 1).length, inst: VIEW.units.mesh.count }));
+    const probe = await page.evaluate(() => ({ p: VIEW.probe(), raiders: RT.units.filter(u => u.side === 1).length, inst: VIEW.units.count() }));
     check('battle renders units', probe.inst >= probe.raiders && probe.raiders > 0, JSON.stringify(probe));
     await page.screenshot({ path: path.join(out, '3d-dark-battle.png') });
     check('no errors', errors.length === 0, errors.slice(0, 3).join(' | '));
+    await ctx.close();
+  }
+
+  console.log('battle on a Warlord wave (units, boats, arrows, deaths)');
+  {
+    const { ctx, page, errors } = await open(browser, { viewport: { width: 1280, height: 800 } });
+    await page.addScriptTag({ path: path.join(__dirname, 'bot.js') });
+    // Set up a Warlord wave on a built-up island, then play it in short chunks so the
+    // browser can flush its GPU work between them (like real frames do).
+    await page.evaluate(() => {
+      window.__b = { hop: false, boatsSeen: 0, oars: 0, arrows: 0, falls: 0, drowns: 0, floaters: 0, maxUnits: 0, maxCalls: 0, partsOk: true, ms: [], frames: 0 };
+      RNG = mulberry32(777); G.paused = true;
+      const classes = ['sword', 'bow', 'pike', 'bow', 'sword', 'pike']; let t = 0, nb = 0;
+      while (t < 8 * 60) { step(STEP); t += STEP; if (t >= nb) { nb = t + 1; botAct(classes); } if (!G.autoAdvance) G.autoAdvance = true; }
+      G.wave = 10; resetRuntime(); VIEW.units.clear();
+    });
+    for (let chunk = 0; chunk < 80; chunk++) {
+      const done = await page.evaluate(() => {
+        const out = window.__b, U = VIEW.units;
+        for (let i = 0; i < 40; i++) {
+          if (RT.phase === 'battle' && !RT.units.some(u => u.side === 1) && !RT.boats.some(b => b.state === 'unload')) return true;
+          VIEW.beforeStep(); step(STEP); out.frames++;
+          if (out.frames % 4) continue;
+          const t0 = performance.now(); U.sync(1, 0.2); VIEW.missiles.sync(1, 0.2); out.ms.push(performance.now() - t0);
+          VIEW.frame(0, 1);
+          const alive = RT.units.filter(u => u.alive).length;
+          out.maxUnits = Math.max(out.maxUnits, alive);
+          if (U.arms.n < alive * 2 || U.legs.n < alive * 2 || U.count() < alive) out.partsOk = false;
+          out.boatsSeen = Math.max(out.boatsSeen, U.boats.hulls[0].n + U.boats.hulls[1].n);
+          out.oars = Math.max(out.oars, U.boats.oars.n);
+          out.arrows = Math.max(out.arrows, VIEW.missiles.arrows.n);
+          for (const st of U.state.values()) { if (st.hop) out.hop = true; if (st.dead === 'fall') out.falls++; if (st.dead === 'drown') out.drowns++; }
+          out.floaters = Math.max(out.floaters, [...document.querySelectorAll('.floater')].filter(e => !e.hidden).length);
+          out.maxCalls = Math.max(out.maxCalls, VIEW.renderer.info.render.calls);
+        }
+        return false;
+      });
+      if (done) break;
+      await page.waitForTimeout(20);
+    }
+    const r = await page.evaluate(() => {
+      const out = window.__b, U = VIEW.units;
+      // knock a raider off a cliff: it should drown, not fall
+      const coast = [];
+      for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) if (tileType(x, y) === T_GRASS && tileType(x + 1, y) === T_WATER) coast.push({ x, y });
+      if (coast.length) {
+        const c = coast[0], u = makeRaider('raider', c.x + 0.85, c.y + 0.5);
+        U.sync(1, 0.05);
+        u.kbx = 5; u.kby = 0; u.stun = 0.4;
+        for (let i = 0; i < 20 && u.alive; i++) { VIEW.beforeStep(); step(STEP); U.sync(1, 0.05); }
+        const st = U.state.get(u.id);
+        out.drownedRaider = st ? st.dead : (u.alive ? 'still alive' : 'gone');
+      }
+      out.ms.sort((a, b) => a - b);
+      out.p95ms = out.ms[Math.floor(out.ms.length * 0.95)] || 0; out.medianMs = out.ms[out.ms.length >> 1] || 0; delete out.ms;
+      return out;
+    });
+    check('every live unit is drawn with body, arms and legs', r.partsOk, r.maxUnits + ' units at most');
+    check('longboats row in', r.boatsSeen > 0 && r.oars >= 8, r.boatsSeen + ' boats, ' + r.oars + ' oars');
+    check('raiders leap ashore from their boat', r.hop);
+    check('arrows fly', r.arrows > 0, r.arrows + ' at once');
+    check('the slain fall', r.falls > 0, r.falls + ' falling frames');
+    check('a raider knocked into the sea drowns', r.drownedRaider === 'drown', r.drownedRaider);
+    check('gold numbers rise from kills', r.floaters > 0, r.floaters + ' at once');
+    check('draw calls stay low in a full battle', r.maxCalls < 90, r.maxCalls + ' calls');
+    check('animating every figure is cheap', r.p95ms < 6, 'median ' + r.medianMs.toFixed(2) + ' ms, p95 ' + r.p95ms.toFixed(2) + ' ms for ' + r.maxUnits + ' units');
+    check('no errors', errors.length === 0, errors.slice(0, 3).join(' | '));
+    await ctx.close();
+  }
+
+  console.log('waves 1 to 10, rendered as they play');
+  {
+    const { ctx, page, errors } = await open(browser, { viewport: { width: 760, height: 480 } });
+    await page.addScriptTag({ path: path.join(__dirname, 'bot.js') });
+    await page.evaluate(() => {
+      RNG = mulberry32(4321); G.paused = true; VIEW.units.clear();
+      window.__w = { classes: ['sword', 'bow', 'pike', 'bow', 'sword', 'pike'], t: 0, nb: 0, kills0: G.stats.kills, deaths: 0, partsOk: true, maxUnits: 0, frames: 0, waves: new Set() };
+      // count raider deaths the renderer animates
+      const U = VIEW.units, orig = U.sync.bind(U);
+      U.sync = (a, dt) => {
+        const before = new Set([...U.state.entries()].filter(([, st]) => st.dead).map(([id]) => id));
+        orig(a, dt);
+        for (const [id, st] of U.state) if (st.dead && !before.has(id) && st.u.side === 1) window.__w.deaths++;
+      };
+    });
+    for (let chunk = 0; chunk < 400; chunk++) {
+      const done = await page.evaluate(() => {
+        const w = window.__w, U = VIEW.units;
+        for (let i = 0; i < 60; i++) {
+          if (G.bestWave >= 10) return true;
+          VIEW.beforeStep(); step(STEP); w.t += STEP; w.frames++;
+          if (w.t >= w.nb) { w.nb = w.t + 1; botAct(w.classes); }
+          if (!G.autoAdvance) G.autoAdvance = true;
+          w.waves.add(G.wave);
+          if (w.frames % 4) continue;
+          VIEW.frame(STEP * 4, 1);
+          const alive = RT.units.filter(u => u.alive).length;
+          w.maxUnits = Math.max(w.maxUnits, alive);
+          if (U.arms.n < alive * 2 || U.legs.n < alive * 2 || U.count() < alive) w.partsOk = false;
+        }
+        return false;
+      });
+      if (done) break;
+      await page.waitForTimeout(10);
+    }
+    const w = await page.evaluate(() => { const w = window.__w; return { best: G.bestWave, kills: G.stats.kills - w.kills0, deaths: w.deaths, partsOk: w.partsOk, maxUnits: w.maxUnits, minutes: +(w.t / 60).toFixed(1) }; });
+    check('waves 1-10 play through', w.best >= 10, 'best wave ' + w.best + ' after ' + w.minutes + ' game minutes');
+    check('every live unit drawn throughout', w.partsOk, 'up to ' + w.maxUnits + ' units');
+    check('the renderer shows a death for (nearly) every kill', w.deaths >= w.kills * 0.9 && w.deaths <= w.kills, w.deaths + ' animated / ' + w.kills + ' killed');
+    check('no errors', errors.length === 0, errors.slice(0, 3).join(' | '));
+    await ctx.close();
+  }
+
+  console.log('reduced motion');
+  {
+    const ctx = await browser.newContext({ viewport: { width: 900, height: 600 }, reducedMotion: 'reduce' });
+    const page = await ctx.newPage();
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => typeof VIEW !== 'undefined' && VIEW && VIEW.rig, null, { timeout: 60000 });
+    const r = await page.evaluate(() => { VIEW.rig.shake(0.2); return { amp: VIEW.rig.shakeAmp, reduced: VIEW.rig.reducedMotion }; });
+    check('no screen shake when the system asks for reduced motion', r.reduced && r.amp === 0, JSON.stringify(r));
     await ctx.close();
   }
 
