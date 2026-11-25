@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Idle Island</title>
-<meta name="description" content="An idle base-defence game: build up a small island while raiders arrive by longboat.">
+<meta name="description" content="An idle base-defence game for the browser. Build up a small island while raiders row in by longboat, train squads to hold the beaches, and sail on to new islands for permanent upgrades. Plays on desktop and mobile.">
 <meta name="theme-color" content="#1a4150">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Idle Island">
@@ -68,10 +68,17 @@
     <section class="stage" id="stage">
       <canvas id="cv" aria-label="The island"></canvas>
       <div class="stage-banner" id="banner" hidden><strong id="banner-title"></strong><span id="banner-sub"></span></div>
-      <div class="stage-mode" id="mode-line" hidden></div>
       <div class="stage-hover" id="hover-line" hidden></div>
+      <div class="stage-zoom" role="group" aria-label="Map zoom">
+        <button class="zoom-btn" data-act="zoom-in" id="zoom-in" aria-label="Zoom in" title="Zoom in (or pinch / scroll)">+</button>
+        <button class="zoom-btn" data-act="zoom-out" id="zoom-out" aria-label="Zoom out" title="Zoom out">−</button>
+      </div>
       <div class="stage-paused" id="paused-veil" hidden>Paused</div>
     </section>
+    <div class="stage-mode" id="mode-line" role="status" hidden>
+      <span id="mode-text"></span>
+      <button class="mode-cancel" id="mode-cancel" data-act="cancel-modes" hidden>Cancel</button>
+    </div>
 
     <aside class="panel">
       <div class="hint" id="hint" hidden></div>

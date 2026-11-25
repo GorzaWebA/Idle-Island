@@ -192,10 +192,27 @@ rebuild for free after a few seconds. When a cottage falls, the raiders also
 ## 9. Controls
 
 * **Build tab**: pick a building, then click a valid tile. Hover shows a preview of yield or range.
-  Palisade mode stays active for chain-building. Esc or right-click cancels.
+  Palisade mode stays active for chain-building. Esc, right-click or the on-screen **Cancel** stops.
 * Click a building to select it, then upgrade or demolish it.
 * Click a squad (on the map or its card) to select it, then click a tile to make it hold there.
+* Zoom with the mouse wheel, a pinch or the **+ −** buttons; drag to pan while zoomed in.
 * Keys: Space pauses, Esc cancels, 1–3 set game speed.
+
+### Touch screens
+
+Phones and tablets get the same game with these adjustments:
+
+* **Two-tap building.** The first tap previews the tile (outline, yield or range, or why it can't be
+  built there); a second tap on the same tile builds. A misplaced building costs real gold, so a single
+  tap must never spend it.
+* **Taps come from pointer events**, not the browser's `click`, so they behave the same everywhere. The
+  browser's follow-up click is cancelled on the map, so a tap near a button can't press it by accident.
+* **Upright phones**: the map is pinned at the top and only the panel scrolls, so you can watch the
+  battle while you spend. The mode bar sits in a strip under the map, so it never covers a tile.
+* **Sideways phones**: map and panel sit side by side.
+* Touch targets are at least 36px, and the squad card spells out trait and ability effects, since
+  touch screens have no hover tooltips.
+* `node tools/mobile.js` checks all of this on emulated phones and a tablet.
 
 ## 10. Balance targets
 

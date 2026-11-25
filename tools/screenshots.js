@@ -16,7 +16,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { chromium } = require('playwright');
+const { chromium, devices } = require('playwright');
 
 const root = path.join(__dirname, '..');
 const outDir = path.join(root, 'assets');
@@ -169,7 +169,7 @@ async function gif(browser) {
     cardStyle: { left: '52px', top: '50%', transform: 'translateY(-50%)' }
   });
   await uiShot(browser, { file: 'screenshot-desktop.png', viewport: { width: 1440, height: 860 }, tab: 'squads' });
-  await uiShot(browser, { file: 'screenshot-phone.png', viewport: { width: 390, height: 844 }, dsf: 2, tab: 'build', scheme: 'dark' });
+  await uiShot(browser, { file: 'screenshot-phone.png', device: devices['Pixel 7'], tab: 'squads', scheme: 'dark' });
   try { await gif(browser); } catch (e) { console.log('GIF skipped: ' + e.message); }
   await browser.close();
   // Shrink the PNGs to 256-colour palettes; the flat art survives it well.

@@ -36,12 +36,51 @@ function resizeRender() {
     if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
   }
   const m = 0.9, vw = x1 - x0 + 1 + 2 * m, rows = y1 - y0 + 1 + 2 * m;
-  R.T = Math.min(R.w / vw, R.h / (rows * 0.78 + 0.6));
-  R.TH = R.T * 0.78; R.HZ = R.T * 0.42;
-  R.ox = (R.w - vw * R.T) / 2 - (x0 - m) * R.T;
-  R.oy = (R.h - rows * R.TH) / 2 - (y0 - m) * R.TH + R.HZ * 0.35;
+  const T0 = Math.min(R.w / vw, R.h / (rows * 0.78 + 0.6));
+  R.base = {
+    T: T0,
+    ox: (R.w - vw * T0) / 2 - (x0 - m) * T0,
+    oy: (R.h - rows * T0 * 0.78) / 2 - (y0 - m) * T0 * 0.78 + T0 * 0.42 * 0.35
+  };
+  R.bounds = { x0, x1, y0, y1 };
+  if (R.mapSeed !== MAP.seed) { R.zoom = 1; R.camX = null; R.camY = null; }
   R.mapSeed = MAP.seed;
+  applyCamera();
+}
+
+/* ---------- camera: pinch / wheel zoom and drag pan ---------- */
+const ZOOM_MAX = 3;
+function applyCamera() {
+  const b = R.base;
+  if (!(R.zoom > 1.001)) {
+    R.zoom = 1; R.camX = null; R.camY = null;
+    R.T = b.T; R.ox = b.ox; R.oy = b.oy;
+  } else {
+    const T = b.T * R.zoom, TH = T * 0.78, bd = R.bounds;
+    if (R.camX === null || R.camX === undefined) { R.camX = (R.w / 2 - b.ox) / b.T; R.camY = (R.h / 2 - b.oy) / (b.T * 0.78); }
+    R.camX = clamp(R.camX, bd.x0, bd.x1 + 1);
+    R.camY = clamp(R.camY, bd.y0, bd.y1 + 1);
+    R.T = T; R.ox = R.w / 2 - R.camX * T; R.oy = R.h / 2 - R.camY * TH;
+  }
+  R.TH = R.T * 0.78; R.HZ = R.T * 0.42;
   R.terrainKey = '';
+}
+function screenToWorld(fx, fy) { return { x: (fx - R.ox) / R.T, y: (fy - R.oy) / R.TH }; }
+// Zoom to z, keeping world point (wx, wy) under screen point (fx, fy).
+function anchorView(z, wx, wy, fx, fy) {
+  R.zoom = clamp(z, 1, ZOOM_MAX);
+  if (R.zoom > 1.001) {
+    const T = R.base.T * R.zoom, TH = T * 0.78;
+    R.camX = wx - (fx - R.w / 2) / T;
+    R.camY = wy - (fy - R.h / 2) / TH;
+  }
+  applyCamera();
+}
+function zoomAt(fx, fy, z) { const w = screenToWorld(fx, fy); anchorView(z, w.x, w.y, fx, fy); }
+function panBy(dx, dy) {
+  if (R.zoom <= 1.001) return;
+  R.camX -= dx / R.T; R.camY -= dy / R.TH;
+  applyCamera();
 }
 
 function sx(x) { return R.ox + x * R.T; }
@@ -63,7 +102,7 @@ function shade(hex, f) {
 
 /* ---------- static terrain layer ---------- */
 function buildTerrain() {
-  const key = MAP.seed + ':' + R.w + 'x' + R.h + ':' + R.dpr;
+  const key = MAP.seed + ':' + R.w + 'x' + R.h + ':' + R.dpr + ':' + R.T.toFixed(3) + ':' + R.ox.toFixed(2) + ':' + R.oy.toFixed(2);
   if (R.terrainKey === key && R.terrain) return;
   R.terrainKey = key;
   const cv = R.terrain || document.createElement('canvas');
@@ -464,7 +503,10 @@ function drawIncoming(ctx) {
       badge(ctx, X, Y - R.T * 0.95, n, b.boss);
       continue;
     }
-    const cx = clamp(X, pad, R.w - pad), cy = clamp(Y, pad, R.h - pad);
+    let cx = clamp(X, pad, R.w - pad), cy = clamp(Y, pad, R.h - pad);
+    // Keep markers clear of the zoom buttons in the bottom-right corner.
+    const zx = R.w - 64, zy = R.h - 116;
+    if (cx > zx && cy > zy) { if (cx >= R.w - pad - 0.5) cy = zy; else cx = zx; }
     const a = Math.atan2(Y - cy, X - cx);
     ctx.save(); ctx.translate(cx, cy); ctx.rotate(a);
     ctx.fillStyle = 'rgba(160,40,30,0.92)';
@@ -624,9 +666,10 @@ function pickWorld(mx, my) {
   const h = VH[tileType(t.x, t.y)];
   return { x: (mx - R.ox) / R.T, y: (my - R.oy + h * R.HZ) / R.TH, tile: t };
 }
-function pickSquadAt(mx, my) {
+function pickSquadAt(mx, my, radius) {
   if (!RT) return null;
-  let best = null, bd = (R.T * 0.4) * (R.T * 0.4);
+  const rad = radius || R.T * 0.4;
+  let best = null, bd = rad * rad;
   for (const u of RT.units) {
     if (u.side !== 0 || !u.alive) continue;
     const h = groundH(u.x, u.y);

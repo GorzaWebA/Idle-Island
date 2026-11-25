@@ -42,7 +42,7 @@
 - 🏗️ **Placement matters.** Lumber camps want forest, markets want cottages around them, towers want high ground, and palisades funnel raiders off the beaches.
 - 💤 **Real idle play.** Income keeps flowing, waves run on their own, and progress continues while you're away (up to 8 hours).
 - 📜 **Prestige.** Reach wave 10, then sail to a fresh island for Renown and spend it on permanent Sagas.
-- 📱 **Phone friendly.** The layout stacks on small screens, and the game saves in your browser.
+- 📱 **Made for phones too.** The map stays pinned above the panel, pinch to zoom and drag to look around, tap a tile twice to build, and turn the phone sideways for a side-by-side layout. Progress saves in your browser.
 
 ## 🧭 How a run goes
 
@@ -105,10 +105,12 @@ Commander traits: *Stalwart*, *Fierce*, *Swift*, *Keen-eyed*, *Hardy*, *Lucky*.
 
 | Input | Action |
 | :-- | :-- |
-| Click a building | Inspect, upgrade or demolish it |
+| Click or tap a building | Inspect, upgrade or demolish it |
 | Pick in **Build**, then click a tile | Place a building (palisades stay in build mode) |
-| Click a squad, then a tile | Hold that position. **Back to auto** releases it |
-| <kbd>Esc</kbd> or right-click | Cancel |
+| 📱 Pick in **Build**, then tap a tile twice | The first tap previews the spot and its yield, the second builds |
+| Select a squad, then a tile | Hold that position. **Back to auto** releases it |
+| Pinch, mouse wheel, or the **+ −** buttons | Zoom the map. Drag to look around while zoomed in |
+| **Cancel**, <kbd>Esc</kbd> or right-click | Stop placing or deselect |
 | <kbd>Space</kbd> | Pause |
 | <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> | Game speed |
 
@@ -159,12 +161,13 @@ The simulation (`util`, `data`, `island`, `state`, `sim`) never touches the DOM,
 node tools/balance.js 60 3     # a greedy bot plays 3 islands for 60 game-minutes each and reports pacing
 node tools/balance.js 45 2 3   # the same, with every Saga at level 3
 node tools/smoke.js            # loads the game in headless Chromium, plays a little, saves screenshots
+node tools/mobile.js           # touch tests on emulated phones, landscape phones and a tablet
 node tools/screenshots.js      # regenerates the images in assets/ (needs ffmpeg for the GIF)
 node tools/build.js            # bundles everything into dist/idle-island.html
 tools/deploy-pages.sh          # publishes the game to the gh-pages branch
 ```
 
-`smoke.js` and `screenshots.js` need Playwright with Chromium.
+`smoke.js`, `mobile.js` and `screenshots.js` need Playwright with Chromium.
 
 ## 🙏 Inspiration
 

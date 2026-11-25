@@ -3,8 +3,15 @@
 
 const UI = {
   tab: 'build', placing: null, selB: null, selSq: null, hover: null,
-  confirm: null, exportStr: '', importMsg: '', toast: null, panelT: 0
+  confirm: null, exportStr: '', importMsg: '', toast: null, panelT: 0,
+  pending: null, lastPointer: null
 };
+// Touch or pen input: placement asks for a second tap, and wording says "tap".
+function isTouch() {
+  if (UI.lastPointer) return UI.lastPointer !== 'mouse';
+  try { return window.matchMedia('(pointer: coarse)').matches; } catch (e) { return false; }
+}
+function verb() { return isTouch() ? 'Tap' : 'Click'; }
 const $ = id => document.getElementById(id);
 
 function setText(el, v) { if (el && el.textContent !== v) el.textContent = v; }
@@ -182,7 +189,7 @@ function squadsTab() {
   if (ri.can) h += '<button class="btn btn-primary" data-act="recruit"' + dis(!canAfford(ri.cost)) + '>Recruit a squad ' + costHtml(ri.cost) + '</button>';
   else h += '<p class="note">Build another Barracks to field more squads.</p>';
   for (const sq of G.squads) h += squadCard(sq);
-  h += '<p class="note">Click a squad, then click a tile to hold it there. Auto squads guard the beaches where boats will land and chase raiders.</p>';
+  h += '<p class="note">Select a squad, then ' + verb().toLowerCase() + ' a tile on the map to hold it there. Auto squads guard the beaches where boats will land and chase raiders.</p>';
   return h;
 }
 
@@ -197,7 +204,8 @@ function squadCard(sq) {
     '<div class="squad-head"><span class="swatch" style="background:' + squadColor(sq) + '"></span><div><div class="squad-name">' + escapeHtml(sq.name) + '</div>' +
     '<div class="squad-meta">Lv ' + sq.lvl + ' ' + c.name + ' · <span title="' + escapeHtml(tr.desc) + '">' + tr.name + '</span></div></div>' +
     '<span class="squad-state ' + cls + '">' + label + '</span></div>' +
-    '<div class="card-row"><div class="pips" title="' + n + ' of ' + size + ' soldiers">' + pips + '</div><span class="chip">' + (sq.kills || 0) + ' kills</span>' + (c.ability ? '<span class="chip" title="' + escapeHtml(c.abilityDesc) + '">' + c.ability + '</span>' : '') + '</div>';
+    '<div class="card-row"><div class="pips" title="' + n + ' of ' + size + ' soldiers">' + pips + '</div><span class="chip">' + (sq.kills || 0) + ' kills</span>' + (c.ability ? '<span class="chip" title="' + escapeHtml(c.abilityDesc) + '">' + c.ability + '</span>' : '') + '</div>' +
+    (sel ? '<p class="squad-detail"><b>' + tr.name + ':</b> ' + escapeHtml(tr.desc) + '.' + (c.ability ? ' <b>' + c.ability + ':</b> ' + escapeHtml(c.abilityDesc) : '') + '</p>' : '');
   if (sq.cls === 'militia') {
     h += '<div class="promote">';
     for (const k of ['sword', 'bow', 'pike']) {
@@ -259,9 +267,10 @@ function chronicleTab() {
     (UI.confirm === 'reset' ? '<button class="btn btn-small btn-danger" data-act="reset">Erase everything</button><button class="btn btn-small" data-act="cancel-confirm">Keep playing</button>' : '<button class="btn btn-small btn-danger" data-act="reset">Start over</button>') + '</div>' +
     (UI.importMsg ? '<p class="note' + (UI.importMsg.startsWith('That') ? ' bad' : '') + '">' + escapeHtml(UI.importMsg) + '</p>' : '') + '</div>';
   h += '<div class="section-title">Controls</div><dl class="keys">' +
-    '<dt>Click tile</dt><dd>Select a building, or place one in build mode</dd>' +
-    '<dt>Click squad</dt><dd>Select it, then click a tile to hold there</dd>' +
-    '<dt><kbd>Esc</kbd> / right-click</dt><dd>Cancel</dd><dt><kbd>Space</kbd></dt><dd>Pause</dd><dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></dt><dd>Game speed</dd></dl>';
+    '<dt>Click or tap a tile</dt><dd>Select a building, or place one in build mode. On touch screens the first tap previews and a second tap builds</dd>' +
+    '<dt>Select a squad</dt><dd>Then pick a tile to hold there</dd>' +
+    '<dt>Pinch, scroll or <kbd>+</kbd> <kbd>−</kbd></dt><dd>Zoom the map; drag to look around when zoomed</dd>' +
+    '<dt>Cancel, <kbd>Esc</kbd> or right-click</dt><dd>Stop placing or deselect</dd><dt><kbd>Space</kbd></dt><dd>Pause</dd><dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></dt><dd>Game speed</dd></dl>';
   return h;
 }
 
@@ -278,15 +287,17 @@ function updateHeader() {
   setAttr($('trait-chip'), 'title', tr.desc);
   setText($('wave'), String(G.wave));
   let status = '';
+  const narrow = window.innerWidth < 400;
   if (RT.phase === 'countdown') {
     const hidden = RT.boats.some(b => b.wave === G.wave && RT.timer > b.visibleAt);
-    status = hidden ? 'Fog on the water… ' + Math.ceil(RT.timer) + 's' : 'Boats land in ' + Math.ceil(RT.timer) + 's';
+    const t = Math.ceil(RT.timer) + 's';
+    status = hidden ? (narrow ? 'Fog… ' : 'Fog on the water… ') + t : (narrow ? 'Boats in ' : 'Boats land in ') + t;
   } else if (RT.phase === 'battle') {
     let left = 0;
     for (const u of RT.units) if (u.side === 1 && u.alive) left++;
     for (const b of RT.boats) if (b.wave === G.wave) left += b.cargo.length;
-    status = 'Battle · ' + left + ' raider' + (left === 1 ? '' : 's') + ' left';
-  } else status = 'The Hall has fallen';
+    status = (narrow ? '' : 'Battle · ') + left + ' raider' + (left === 1 ? '' : 's') + ' left';
+  } else status = narrow ? 'Hall fallen' : 'The Hall has fallen';
   setText($('wave-status'), status);
   setText($('wave-best'), 'Best ' + G.bestWave + (G.bestEver > G.bestWave ? ' · record ' + G.bestEver : '') + (G.wave % 10 === 0 ? ' · Warlord wave' : ''));
   setHidden($('call-btn'), !(RT.phase === 'countdown' && RT.timer > 2));
@@ -304,12 +315,23 @@ function updateHeader() {
     if ($('banner').className !== cls) $('banner').className = cls;
   }
   // mode line
-  let mode = '';
+  let mode = '', cancellable = false;
+  const touch = isTouch();
   if (UI.toast && UI.toast.t > performance.now()) mode = UI.toast.text;
-  else if (UI.placing) mode = 'Placing ' + BUILDINGS[UI.placing].name + ': click a tile. Esc to stop.';
-  else if (UI.selSq) { const sq = squadById(UI.selSq); if (sq) mode = sq.name + "'s squad: click a tile to hold it. Esc to cancel."; }
+  else if (UI.placing) {
+    const name = BUILDINGS[UI.placing].name;
+    cancellable = true;
+    // The text stays the same while placing so the Cancel button never moves under a finger;
+    // per-tile feedback ("Tap again to build", or why not) shows in the info line below the map.
+    mode = touch ? 'Placing ' + name + ': tap a tile twice to build.' : 'Placing ' + name + ': click a tile.';
+  } else if (UI.selSq) {
+    const sq = squadById(UI.selSq);
+    if (sq) { mode = sq.name + "'s squad: " + (touch ? 'tap' : 'click') + ' a tile to hold it.'; cancellable = true; }
+  }
   setHidden($('mode-line'), !mode);
-  setText($('mode-line'), mode);
+  setText($('mode-text'), mode);
+  setHidden($('mode-cancel'), !cancellable);
+  setAttr($('zoom-out'), 'aria-disabled', String(!(R.zoom > 1.001)));
   const hv = hoverText();
   setHidden($('hover-line'), !hv);
   setText($('hover-line'), hv);
@@ -337,7 +359,8 @@ function hoverText() {
         preview = ' · boosts ' + n + ' building' + (n === 1 ? '' : 's');
       }
     }
-    s = (chk.ok ? 'Click to build' : chk.reason) + preview + ' · ' + s;
+    const ask = isTouch() ? (UI.pending && UI.pending.x === hv.x && UI.pending.y === hv.y ? 'Tap again to build' : 'Tap to preview') : 'Click to build';
+    s = (chk.ok ? ask : chk.reason) + preview + ' · ' + s;
   }
   return s;
 }
@@ -346,7 +369,7 @@ function toast(text) { UI.toast = { text, t: performance.now() + 2200 }; }
 
 /* ---------- input ---------- */
 function cancelModes() {
-  UI.placing = null; UI.selSq = null; UI.confirm = null;
+  UI.placing = null; UI.selSq = null; UI.confirm = null; UI.pending = null;
 }
 
 function canvasPoint(e) {
@@ -358,6 +381,13 @@ function onCanvasClick(mx, my) {
   const tile = pickTile(mx, my);
   if (UI.placing) {
     if (!tile) return;
+    // On touch screens the first tap only previews the spot.
+    if (isTouch() && !(UI.pending && UI.pending.x === tile.x && UI.pending.y === tile.y)) {
+      UI.pending = tile; UI.hover = tile;
+      renderPanel();
+      return;
+    }
+    UI.pending = null;
     const res = placeBuilding(UI.placing, tile.x, tile.y);
     if (res.ok) {
       if (UI.placing !== 'palisade' || D.counts.palisade >= D.caps.palisade) UI.placing = null;
@@ -366,7 +396,7 @@ function onCanvasClick(mx, my) {
     renderPanel();
     return;
   }
-  const sq = pickSquadAt(mx, my);
+  const sq = pickSquadAt(mx, my, isTouch() ? Math.max(R.T * 0.6, 22) : R.T * 0.4);
   if (sq) {
     UI.selSq = UI.selSq === sq.id ? null : sq.id;
     UI.selB = null; UI.tab = 'squads';
@@ -392,8 +422,11 @@ function onCanvasClick(mx, my) {
 function doAction(act, arg, ev) {
   switch (act) {
     case 'tab': UI.tab = arg; UI.confirm = null; break;
-    case 'build': UI.placing = UI.placing === arg ? null : arg; UI.selB = null; UI.selSq = null; break;
-    case 'cancel-place': UI.placing = null; break;
+    case 'build': UI.placing = UI.placing === arg ? null : arg; UI.pending = null; UI.selB = null; UI.selSq = null; break;
+    case 'cancel-place': UI.placing = null; UI.pending = null; break;
+    case 'cancel-modes': cancelModes(); UI.selB = null; break;
+    case 'zoom-in': zoomAt(R.w / 2, R.h / 2, R.zoom * 1.5); break;
+    case 'zoom-out': zoomAt(R.w / 2, R.h / 2, R.zoom / 1.5 < 1.1 ? 1 : R.zoom / 1.5); break;
     case 'select-hall': { const h = hallBuilding(); UI.selB = h ? h.id : null; break; }
     case 'hall-up': { const h = hallBuilding(); if (h && upgradeBuilding(h)) saveGame(); break; }
     case 'b-up': { const b = buildingById(+arg); if (b) upgradeBuilding(b); break; }
@@ -462,6 +495,68 @@ function showModal(title, html) {
   $('modal-ok').focus();
 }
 
+/* Map input: taps and clicks, drag to pan, pinch or wheel to zoom.
+   Taps are detected from pointer events (not 'click'), which behaves the same on every device. */
+function initCanvasInput() {
+  const cv = R.canvas;
+  const pts = new Map();
+  let pinch = null, drag = null, multi = false;
+  cv.addEventListener('pointerdown', e => {
+    const p = canvasPoint(e);
+    UI.lastPointer = e.pointerType || 'mouse';
+    try { cv.setPointerCapture(e.pointerId); } catch (err) { /* not capturable */ }
+    pts.set(e.pointerId, p);
+    if (pts.size === 1) multi = false;
+    if (pts.size === 2) {
+      const [a, b] = [...pts.values()];
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, z: R.zoom, w: screenToWorld(mx, my) };
+      drag = null; multi = true;
+    } else if (pts.size === 1) {
+      drag = { id: e.pointerId, x: p.x, y: p.y, lx: p.x, ly: p.y, moved: false, t: performance.now(), button: e.button };
+      if (e.pointerType !== 'mouse' && !UI.placing) UI.hover = pickTile(p.x, p.y);
+    } else multi = true;
+  });
+  cv.addEventListener('pointermove', e => {
+    const p = canvasPoint(e);
+    if (pts.has(e.pointerId)) pts.set(e.pointerId, p);
+    if (pinch && pts.size >= 2) {
+      const [a, b] = [...pts.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      anchorView(pinch.z * d / pinch.d, pinch.w.x, pinch.w.y, (a.x + b.x) / 2, (a.y + b.y) / 2);
+      return;
+    }
+    if (drag && pts.has(e.pointerId)) {
+      if (!drag.moved && Math.hypot(p.x - drag.x, p.y - drag.y) > 8) drag.moved = true;
+      if (drag.moved) panBy(p.x - drag.lx, p.y - drag.ly);
+      drag.lx = p.x; drag.ly = p.y;
+      if (e.pointerType === 'mouse' && !drag.moved) UI.hover = pickTile(p.x, p.y);
+      return;
+    }
+    if (e.pointerType === 'mouse') UI.hover = pickTile(p.x, p.y);
+  });
+  const release = e => {
+    const tap = e.type === 'pointerup' && drag && drag.id === e.pointerId && !drag.moved && !multi &&
+      (e.pointerType !== 'mouse' || drag.button === 0) && performance.now() - drag.t < 800;
+    pts.delete(e.pointerId);
+    if (pinch && pts.size < 2) { pinch = null; drag = null; }
+    if (!pts.size) drag = null;
+    if (tap) { const p = canvasPoint(e); onCanvasClick(p.x, p.y); }
+  };
+  cv.addEventListener('pointerup', release);
+  cv.addEventListener('pointercancel', release);
+  // The map handles its own taps. Cancel the browser's follow-up click, which touch
+  // screens may "snap" onto a nearby button (zoom, Cancel) and press by accident.
+  cv.addEventListener('touchend', e => { if (e.cancelable) e.preventDefault(); }, { passive: false });
+  cv.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse' && !pts.size) UI.hover = null; });
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    const p = canvasPoint(e);
+    zoomAt(p.x, p.y, R.zoom * Math.exp(-e.deltaY * 0.0015));
+  }, { passive: false });
+  cv.addEventListener('contextmenu', e => { e.preventDefault(); cancelModes(); UI.selB = null; renderPanel(); });
+}
+
 function initUI() {
   document.addEventListener('click', e => {
     const el = e.target.closest('[data-act]');
@@ -469,12 +564,7 @@ function initUI() {
     e.preventDefault();
     doAction(el.dataset.act, el.dataset.arg, e);
   });
-  const cv = R.canvas;
-  cv.addEventListener('pointermove', e => { const p = canvasPoint(e); UI.hover = pickTile(p.x, p.y); });
-  cv.addEventListener('pointerdown', e => { const p = canvasPoint(e); UI.hover = pickTile(p.x, p.y); });
-  cv.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') UI.hover = null; });
-  cv.addEventListener('click', e => { const p = canvasPoint(e); onCanvasClick(p.x, p.y); });
-  cv.addEventListener('contextmenu', e => { e.preventDefault(); cancelModes(); UI.selB = null; renderPanel(); });
+  initCanvasInput();
   document.addEventListener('keydown', e => {
     const tag = e.target && e.target.tagName;
     if (tag === 'TEXTAREA' || tag === 'INPUT') return;
