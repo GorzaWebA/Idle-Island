@@ -229,11 +229,47 @@ unchanged and still runs headless; the renderer only reads it.
 | `js/r3d/sea.js` | One shader for the sea: vertex waves near the island, ripple normals, depth colour from a baked distance-to-land texture, shoreline foam, sun glints, fog. A flat outer ring carries it to the horizon |
 | `js/r3d/camera.js` | Orbit rig with easing and clamps (pitch 24°–78°, zoom limits from the island's fit, target inside the island) |
 | `js/r3d/picking.js` | Screen point to sim tile: ray against one box per tile column (seabed up to the surface or building top) |
-| `js/r3d/buildings.js`, `units.js`, `ui3d.js` | Buildings, units and boats, in-world highlights |
+| `js/r3d/models.js` | Procedural building models: seven types × three tiers, a ruin per type, palisades by neighbour mask, and attachment points for smoke, flags and saws |
+| `js/r3d/buildings.js` | Draws buildings as one `InstancedMesh` per model variant; construction, tier-up, hit flash, collapse, chimney smoke, flags, saws |
+| `js/r3d/props.js` | Pines and round trees that sway in a shared wind, rocks and sea stacks, grass tufts, flowers (five instanced draw calls) |
+| `js/r3d/fx.js` | Pooled particles (typed arrays, no per-frame allocation): smoke, dust, ash |
+| `js/r3d/units.js` | Units and boats, interpolated between sim steps |
+| `js/r3d/ui3d.js` | Tile highlight, selection outline, placement ghost with its yield label, range ring draped over the terrain |
 | `js/theme3d.js` | All colours. Light and dark variants change only sky, sun and sea, so a theme switch never rebuilds geometry |
 
 World units: 1 tile = 1 unit, X = tile x, Z = tile y, Y up, sea level at 0. Tile footprints are
 exactly the sim's, so building, inspecting and holding work unchanged.
+
+### Buildings
+
+Each building's level picks one of three tiers (the Hall changes at levels 3 and 5, everything else
+at 3 and 6):
+
+| Building | Tier 1 | Tier 2 | Tier 3 |
+| --- | --- | --- | --- |
+| Great Hall | Timber longhouse, flag | Stone footing, back annex | Stone base, raised second roof, two flags |
+| Cottage | Thatched hut | Timber-framed house with chimney | Two storeys, stone ground floor |
+| Lumber Camp | Lean-to and log pile | Shed, bigger pile, sawhorse with a working saw | Sawmill with plank stacks and saw frame |
+| Barracks | Stone hut, spear rack | Long barracks, shields, training dummy | Crenellated fort with a turret and flag |
+| Watchtower | Timber lookout with ladder | Stone base, timber top | Round stone tower, cone roof, flag |
+| Market | One stall | Two stalls, barrels, sacks | Covered market hall with pennants |
+| Palisade | Sharpened stakes | Plus a crossbeam | On a stone footing |
+
+* **Palisades join up**: each one draws arms towards palisade neighbours (north, east, south, west),
+  so straight runs, corners and junctions all connect. A lone palisade stands east to west.
+* **Draw calls**: every variant (type, tier, palisade shape, ruin) is one `InstancedMesh`. A full
+  settlement is about 15 to 25 draw calls, shadows included.
+* **Animation** comes from the renderer's own per-building state:
+  * A new or rebuilt building rises with a small overshoot (0.7 s) in a ring of dust.
+  * A building pops slightly when it reaches a new tier.
+  * Buildings flash when hit, and collapse to their ruin in a burst of ash.
+  * Ruins smoulder until rebuilt.
+  * Chimneys smoke, flags wave and the lumber saw works.
+* **Placement ghost**: a translucent copy of the building, green when it can be built, amber when
+  you can't afford it and red when it can't go there. It carries a label with the yield or the
+  reason, and watchtowers show their range ring.
+* Small buildings get a random quarter turn per tile (stable for a given island). The Hall,
+  towers and palisades stay square to the map.
 
 ### The VIEW interface
 

@@ -79,9 +79,67 @@ async function tilePoint(page, x, y) {
     check('hover picks the tile under the cursor', hover && hover.x === spot.x && hover.y === spot.y, JSON.stringify(hover) + ' vs ' + JSON.stringify(spot));
     await page.mouse.click(pt.x, pt.y);
     await page.waitForTimeout(200);
-    const built = await page.evaluate(([x, y]) => { const b = buildingAtTile(x, y); return { n: D.counts.cottage, type: b && b.type, meshes: VIEW.buildings.meshes.size }; }, [spot.x, spot.y]);
+    const built = await page.evaluate(([x, y]) => { const b = buildingAtTile(x, y); return { n: D.counts.cottage, type: b && b.type, tracked: VIEW.buildings.state.size }; }, [spot.x, spot.y]);
     check('click builds a cottage on that tile', built.n === before + 1 && built.type === 'cottage', JSON.stringify(built));
     await page.screenshot({ path: path.join(out, '3d-desktop.png') });
+
+    // Phase 2: tiers, palisades that join up, ghost preview, construction, props under buildings.
+    const p2 = await page.evaluate(([x, y]) => {
+      const r = {};
+      const b = buildingAtTile(x, y);
+      G.gold += 1e7; G.timber += 1e7;
+      // a freshly placed building starts its construction animation, then finishes it
+      const s2 = nearestFreeTile(MAP.hall.x, MAP.hall.y, (xx, yy) => placementCheck('cottage', xx, yy).ok);
+      const nb = placeBuilding('cottage', s2.x, s2.y).b;
+      VIEW.frame(0.016, 1);
+      const st1 = VIEW.buildings.state.get(nb.id), early = st1 && st1.t < 0.7;
+      for (let i = 0; i < 20; i++) VIEW.frame(0.05, 1);
+      r.constructing = early && VIEW.buildings.state.get(nb.id).t >= 0.7;
+      const hall = hallBuilding(); while (hall.lvl < 4) upgradeBuilding(hall);
+      while (b.lvl < 6) upgradeBuilding(b);
+      VIEW.frame(0.05, 1);
+      r.tier3 = (VIEW.buildings.batches.get('cottage:3') || { n: 0 }).n >= 1;
+      // three palisades in a row: the middle one joins east and west
+      const free = (x, y) => placementCheck('palisade', x, y).ok;
+      let row = null;
+      for (let yy = 1; yy < MAP_H - 1 && !row; yy++) for (let xx = 1; xx < MAP_W - 3 && !row; xx++) if (free(xx, yy) && free(xx + 1, yy) && free(xx + 2, yy)) row = { x: xx, y: yy };
+      if (row) {
+        for (let k = 0; k < 3; k++) placeBuilding('palisade', row.x + k, row.y);
+        VIEW.frame(0.05, 1);
+        const mid = buildingAtTile(row.x + 1, row.y), end = buildingAtTile(row.x, row.y);
+        r.joinMid = VIEW.buildings.modelFor(mid).key; r.joinEnd = VIEW.buildings.modelFor(end).key;
+      }
+      // the ghost shows while placing over a free tile
+      const g = nearestFreeTile(MAP.hall.x, MAP.hall.y, (xx, yy) => placementCheck('cottage', xx, yy).ok);
+      UI.placing = 'cottage'; UI.hover = g; VIEW.frame(0.05, 1);
+      r.ghost = VIEW.overlay.ghost.visible && !document.getElementById('ghost-chip').hidden;
+      r.chip = document.getElementById('ghost-chip').textContent;
+      UI.placing = null; UI.hover = null; VIEW.frame(0.05, 1);
+      r.ghostGone = !VIEW.overlay.ghost.visible;
+      // smoke rises from producing chimneys, and nothing grows without bound
+      for (let i = 0; i < 60; i++) VIEW.frame(0.05, 1);
+      r.puffs = VIEW.puffs.n;
+      // decorations on built tiles are hidden (zero scale), the rest are not
+      const m = new THREE.Matrix4(), sc = new THREE.Vector3();
+      let under = 0, hidden = 0;
+      for (const k of ['tufts', 'flowers']) {
+        const set = VIEW.props.sets[k];
+        set.items.forEach((it, i) => {
+          if (!VIEW.buildings.byTile.has(it.tile)) return;
+          under++; set.mesh.getMatrixAt(i, m); sc.setFromMatrixScale(m); if (sc.x === 0) hidden++;
+        });
+      }
+      r.under = under; r.hidden = hidden;
+      r.calls = VIEW.probe().calls;
+      return r;
+    }, [spot.x, spot.y]);
+    check('a new building rises with a construction animation', p2.constructing);
+    check('upgrading changes the model tier', p2.tier3);
+    check('palisades join their neighbours', p2.joinMid === 'palisade:1:10' && p2.joinEnd === 'palisade:1:2', p2.joinMid + ' / ' + p2.joinEnd);
+    check('placement ghost and its label appear, then go away', p2.ghost && p2.ghostGone, p2.chip);
+    check('chimneys smoke', p2.puffs > 0, p2.puffs + ' puffs');
+    check('grass and flowers hide under buildings', p2.under > 0 && p2.hidden === p2.under, p2.hidden + '/' + p2.under);
+    check('draw calls stay low with a growing base', p2.calls < 60, p2.calls + ' calls');
 
     // Orbit, zoom, rotate, recentre.
     const box = await page.locator('#cv').boundingBox();
