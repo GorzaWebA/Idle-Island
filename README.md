@@ -109,7 +109,11 @@ Commander traits: *Stalwart*, *Fierce*, *Swift*, *Keen-eyed*, *Hardy*, *Lucky*.
 | Pick in **Build**, then click a tile | Place a building (palisades stay in build mode) |
 | 📱 Pick in **Build**, then tap a tile twice | The first tap previews the spot and its yield, the second builds |
 | Select a squad, then a tile | Hold that position. **Back to auto** releases it |
-| Pinch, mouse wheel, or the **+ −** buttons | Zoom the map. Drag to look around while zoomed in |
+| Drag (mouse or one finger) | Orbit the island |
+| Right- or middle-drag, two-finger drag, or <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> | Pan |
+| Mouse wheel, pinch, or the **+ −** buttons | Zoom (the wheel zooms towards the cursor) |
+| <kbd>Q</kbd> <kbd>E</kbd> | Rotate the view |
+| **⌖** button | Show the whole island again |
 | **Cancel**, <kbd>Esc</kbd> or right-click | Stop placing or deselect |
 | <kbd>Space</kbd> | Pause |
 | <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> | Game speed |
@@ -149,19 +153,25 @@ Choose under **Settings → Pages → Deploy from a branch**:
 | `js/island.js` | Procedural island generator (beaches, highland, forest, Hall site) |
 | `js/state.js` | Persistent state, derived stats, economy actions, save/load, offline progress |
 | `js/sim.js` | Fixed-step battle simulation: boats, flow-field raider pathing, squad AI, combat |
-| `js/render.js` | Canvas renderer (3/4 oblique view) |
+| `js/render3d.js` | 3D renderer: scene, lights, shadows, loop hooks, the `VIEW` interface |
+| `js/r3d/*.js` | 3D parts: `builder` (procedural meshes), `terrain`, `sea`, `camera`, `picking`, `buildings`, `units`, `ui3d` |
+| `js/theme3d.js` | Every 3D colour, with daylight and dusk variants |
+| `js/render.js` | The classic 2D map, used when WebGL is unavailable or with `?2d` |
 | `js/ui.js` | Header, tabbed panel, map input |
-| `js/main.js` | Boot, main loop, autosave |
+| `js/main.js` | Boot, renderer choice, main loop, autosave |
+| `js/vendor/` | three.js r159 (classic build, MIT) |
+| `css/fonts/` | Barlow and Grenze (SIL Open Font License), served locally |
 
 The simulation (`util`, `data`, `island`, `state`, `sim`) never touches the DOM, so it also runs headless in Node.
+The game makes no network requests: Three.js and the fonts ship with it, and every model is built in code.
 
 ## 🧪 Tools
 
 ```sh
 node tools/balance.js 60 3     # a greedy bot plays 3 islands for 60 game-minutes each and reports pacing
 node tools/balance.js 45 2 3   # the same, with every Saga at level 3
-node tools/smoke.js            # loads the game in headless Chromium, plays a little, saves screenshots
-node tools/mobile.js           # touch tests on emulated phones, landscape phones and a tablet
+node tools/smoke.js            # 3D game in headless Chromium (software WebGL): plays, builds, orbits, zooms
+node tools/mobile.js           # touch tests (orbit, pinch, pan, two-tap build) on phones and a tablet
 node tools/screenshots.js      # regenerates the images in assets/ (needs ffmpeg for the GIF)
 node tools/build.js            # bundles everything into dist/idle-island.html
 tools/deploy-pages.sh          # publishes the game to the gh-pages branch

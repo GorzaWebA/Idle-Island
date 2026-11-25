@@ -22,7 +22,8 @@ const root = path.join(__dirname, '..');
 const outDir = path.join(root, 'assets');
 const seed = +(process.argv[2] || 1337);
 const minutes = +(process.argv[3] || 13);
-const url = 'file://' + path.join(root, 'index.html');
+// Still drives the classic 2D map until the 3D renderer gets its own capture path (phase 6).
+const url = 'file://' + path.join(root, 'index.html') + '?2d';
 
 // Plays the island up to a busy moment in battle. Runs inside the page.
 function setupScene(opts) {

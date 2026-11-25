@@ -214,7 +214,73 @@ Phones and tablets get the same game with these adjustments:
   touch screens have no hover tooltips.
 * `node tools/mobile.js` checks all of this on emulated phones and a tablet.
 
-## 10. Balance targets
+## 10. 3D rendering
+
+The game is drawn as a small low-poly diorama with Three.js (r159, vendored). The simulation is
+unchanged and still runs headless; the renderer only reads it.
+
+### Architecture
+
+| File | Role |
+| --- | --- |
+| `js/render3d.js` | Scene, lights, shadows, resize, theme, and the `VIEW` interface below |
+| `js/r3d/builder.js` | `MeshBuilder`: boxes, prisms, cylinders, polygons with flat normals and vertex colours. Faces orient from an outward vector |
+| `js/r3d/terrain.js` | Tile grid to stepped terrain: grass 0.36, highland 0.92, beaches sloping from 0.16 to −0.06, rocky cliff walls down to the seabed, baked shade at cliff feet, instanced pines |
+| `js/r3d/sea.js` | One shader for the sea: vertex waves near the island, ripple normals, depth colour from a baked distance-to-land texture, shoreline foam, sun glints, fog. A flat outer ring carries it to the horizon |
+| `js/r3d/camera.js` | Orbit rig with easing and clamps (pitch 24°–78°, zoom limits from the island's fit, target inside the island) |
+| `js/r3d/picking.js` | Screen point to sim tile: ray against one box per tile column (seabed up to the surface or building top) |
+| `js/r3d/buildings.js`, `units.js`, `ui3d.js` | Buildings, units and boats, in-world highlights |
+| `js/theme3d.js` | All colours. Light and dark variants change only sky, sun and sea, so a theme switch never rebuilds geometry |
+
+World units: 1 tile = 1 unit, X = tile x, Z = tile y, Y up, sea level at 0. Tile footprints are
+exactly the sim's, so building, inspecting and holding work unchanged.
+
+### The VIEW interface
+
+`main.js` picks a renderer at start: 3D, or the classic 2D map (`js/render.js`) when WebGL is
+unavailable or the URL has `?2d`. Both implement the same interface, and `ui.js` and `main.js`
+only talk to it:
+
+| Member | Meaning |
+| --- | --- |
+| `kind`, `canvas` | `'3d'` or `'2d'`, and the element taps are measured against |
+| `init(stage)` | Returns false if this renderer can't run here |
+| `beforeStep()` | Called before every fixed sim step |
+| `frame(dt, alpha)` | Draw. `alpha` is how far the clock is between the last step and the next |
+| `pickTile(mx, my)`, `pickSquadAt(mx, my, touch)` | Sim tile, or squad, under a canvas point |
+| `tileToScreen(x, y)` | Canvas point of a tile's surface centre (used by tests) |
+| `zoomBy(f)`, `canZoomOut()`, `recentre()`, `bindInput(cb)` | Camera controls; `bindInput` reports taps, hovers and cancels back to the UI |
+
+### Render-state contract
+
+What the renderer reads from the sim each frame, and how:
+
+* **Units** (`RT.units`): `id`, `side` (0 defender, 1 raider), `kind`, `x`, `y` (continuous tile
+  coordinates), `hp`/`maxHp`, `alive`, `big`, `fleeing` and `alpha` (raiders fading after a sacked
+  Hall), `target` (a unit, or a building when it has a `type`), `flash` (seconds of hit flash),
+  `kbx`/`kby` (knockback velocity), `cdT` (attack cooldown: a jump upwards means an attack just
+  happened), `walk` (distance walked, for gait), and for defenders `sq` and `slot` (0 = commander).
+* **Squads** (`G.squads[i].rt`): `members`, `ax`/`ay` (formation anchor), `task`, `routedT`, `stats.size`.
+* **Boats** (`RT.boats`): `id`, `x`, `y`, `dx`/`dy` (inbound heading), `state` (`sail`, `unload`,
+  `leave`, `gone`), `cargo`, `boss`, `alpha`, `visibleAt` (hidden while `RT.timer > visibleAt` in a
+  Fogbound countdown), `landing`.
+* **Buildings** (`G.buildings`): `id`, `type`, `x`, `y`, `lvl`, `hp`/`maxHp`, `ruined`, `rebuild`, `flash`.
+* **Projectiles and effects**: `RT.projectiles` (`x`, `y`, `sx`, `sy`, `tx`, `ty`, `h0`, `fire`,
+  `visual`), `RT.volleys`, `RT.effects` (`hit`, `death`, `splash`, `bash`, `volley`, `blaze`,
+  `refill`, `spark`), `RT.floaters`, `RT.phase`/`RT.timer`.
+
+The renderer derives what the sim doesn't store:
+
+* **Smooth motion.** `beforeStep()` snapshots unit and boat positions, and frames interpolate
+  between the last two 20 Hz steps.
+* **Facing.** The sim only has a left/right `face`, so the heading comes from movement, or from
+  the target when standing still, then eases round.
+* **Animation triggers.** Attacks show as jumps in `cdT` and hits as `flash`. Deaths are units
+  leaving `RT.units` (Phase 3 may add a small event hook for those).
+
+Its own per-unit state lives in Maps keyed by id. It never writes to sim objects.
+
+## 11. Balance targets
 
 Checked with `node tools/balance.js`, a headless bot that plays a simple greedy strategy
 (always spends on the cheapest weighted option, re-enables Advance after three farmed wins).

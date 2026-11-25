@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /*
- * Mobile test: emulates phones and a tablet in headless Chromium and plays with touch.
- * Checks layout (no sideways scroll, map stays on screen while the panel scrolls),
- * two-tap building, promoting, stationing a squad, the Cancel button, pinch zoom,
- * drag panning, and touch target sizes. Saves a screenshot per device.
+ * Mobile test: emulates phones and a tablet in headless Chromium (software WebGL) and plays
+ * with touch. Checks layout (no sideways scroll, map stays on screen while the panel scrolls),
+ * two-tap building, promoting, stationing a squad, the Cancel button, one-finger orbit,
+ * pinch zoom, two-finger pan, the zoom and recentre buttons, and touch target sizes.
+ * Saves screenshots per device.
  *
- *   node tools/mobile.js [screenshotDir]
+ *   node tools/mobile.js [screenshotDir]          (DEVICE="iPhone 13" to run one device)
  */
 'use strict';
 const fs = require('fs');
@@ -15,56 +16,48 @@ const { chromium, devices } = require('playwright');
 const out = process.argv[2] || path.join(__dirname, '..', 'screenshots');
 const url = 'file://' + path.join(__dirname, '..', 'index.html');
 const DEVICES = process.env.DEVICE ? [process.env.DEVICE] : ['iPhone SE', 'iPhone 13', 'Pixel 7', 'iPhone 13 landscape', 'Pixel 7 landscape', 'iPad Mini'];
+const GL_ARGS = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
 
 function check(results, name, ok, detail) {
   results.push({ name, ok: !!ok, detail: detail === undefined ? '' : String(detail) });
 }
 
-// Screen position (CSS px, page coordinates) of a tile's top face centre.
+// Page coordinates of a tile's surface centre (camera settled first).
 async function tilePoint(page, x, y) {
   const box = await page.locator('#cv').boundingBox();
-  const p = await page.evaluate(([x, y]) => {
-    const h = VH[tileType(x, y)];
-    return { x: R.ox + (x + 0.5) * R.T, y: R.oy + y * R.TH - h * R.HZ + R.TH * 0.5 };
-  }, [x, y]);
+  const p = await page.evaluate(([x, y]) => { VIEW.rig.settle(); return VIEW.tileToScreen(x, y); }, [x, y]);
   return { x: box.x + p.x, y: box.y + p.y };
 }
 
-// Picks a tile for `ok(x, y)` that is far from units and not covered by an overlay.
-async function freeTile(page, kind) {
-  return page.evaluate(kind => {
-    const cv = document.getElementById('cv').getBoundingClientRect();
+// A tile that suits `kind`, is on screen, clear of overlays by a finger's width, and
+// either far from units ('far') or nearest the middle of the map ('centre').
+async function freeTile(page, kind, prefer) {
+  return page.evaluate(([kind, prefer]) => {
+    VIEW.rig.settle();
+    const canvas = document.getElementById('cv'), cv = canvas.getBoundingClientRect();
     const RING = [[0, 0]]; for (let k = 0; k < 8; k++) RING.push([Math.cos(k * Math.PI / 4) * 30, Math.sin(k * Math.PI / 4) * 30]);
-    let best = null, bs = -1;
+    let best = null, bs = -Infinity;
     for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
       if (kind === 'cottage' ? !canPlaceBasic('cottage', x, y) : !isLandTile(x, y)) continue;
-      const h = VH[tileType(x, y)];
-      const px = cv.left + R.ox + (x + 0.5) * R.T, py = cv.top + R.oy + y * R.TH - h * R.HZ + R.TH * 0.5;
-      // Keep a finger's width away from any button or overlay on the map.
-      const canvas = document.getElementById('cv');
+      const s = VIEW.tileToScreen(x, y), px = cv.left + s.x, py = cv.top + s.y;
       if (RING.some(([dx, dy]) => document.elementFromPoint(px + dx, py + dy) !== canvas)) continue;
-      let d = 99; for (const u of RT.units) d = Math.min(d, dist(u.x, u.y, x + 0.5, y + 0.5));
-      if (d > bs) { bs = d; best = { x, y }; }
+      const hit = VIEW.pickTile(s.x, s.y);
+      if (!hit || hit.x !== x || hit.y !== y) continue;      // something stands in front of it
+      let score;
+      if (prefer === 'centre') score = -Math.hypot(s.x - cv.width / 2, s.y - cv.height / 2);
+      else { let d = 99; for (const u of RT.units) d = Math.min(d, dist(u.x, u.y, x + 0.5, y + 0.5)); score = d; }
+      if (score > bs) { bs = score; best = { x, y }; }
     }
     return best;
-  }, kind);
+  }, [kind, prefer || 'far']);
 }
 
-async function touchDrag(cdp, from, to, steps) {
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: from.x, y: from.y, id: 1 }] });
-  for (let k = 1; k <= steps; k++) {
-    const t = k / steps;
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, id: 1 }] });
-  }
+async function touches(cdp, frames) {
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: frames[0] });
+  for (let k = 1; k < frames.length; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: frames[k] });
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
-
-async function pinch(cdp, c, from, to, steps) {
-  const pts = r => [{ x: c.x - r, y: c.y, id: 1 }, { x: c.x + r, y: c.y, id: 2 }];
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pts(from) });
-  for (let k = 1; k <= steps; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pts(from + (to - from) * k / steps) });
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-}
+const steps = (n, f) => Array.from({ length: n + 1 }, (_, k) => f(k / n));
 
 async function testDevice(browser, name) {
   const results = [];
@@ -74,26 +67,30 @@ async function testDevice(browser, name) {
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(url);
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(1200);
   const cdp = await ctx.newCDPSession(page);
+  check(results, '3D renderer active', await page.evaluate(() => VIEW.kind) === '3d');
 
   // ---- layout ----
   const lay = await page.evaluate(() => {
+    VIEW.rig.settle();
     const st = document.getElementById('stage').getBoundingClientRect();
     const pb = document.getElementById('panel-body');
+    const b = R3.Terrain.landBounds(), cx = Math.floor(b.cx), cz = Math.floor(b.cz);
+    const a = VIEW.tileToScreen(cx, cz), c = VIEW.tileToScreen(cx + 1, cz);
     return {
       vw: innerWidth, vh: innerHeight,
       sw: document.documentElement.scrollWidth, sh: document.documentElement.scrollHeight,
       stage: { top: st.top, bottom: st.bottom, h: st.height, w: st.width },
       panelScrolls: pb.scrollHeight > pb.clientHeight + 4, panelH: pb.clientHeight,
-      island: { T: R.T }
+      tile: Math.hypot(c.x - a.x, c.y - a.y)
     };
   });
   check(results, 'no sideways page scroll', lay.sw <= lay.vw + 1, lay.sw + ' vs ' + lay.vw);
   check(results, 'page fits the screen (only the panel scrolls)', lay.sh <= lay.vh + 1, lay.sh + ' vs ' + lay.vh);
   check(results, 'map is on screen and usable', lay.stage.top >= 0 && lay.stage.bottom <= lay.vh + 1 && lay.stage.h >= 180, JSON.stringify(lay.stage));
   check(results, 'panel has room', lay.panelH >= 120, lay.panelH + 'px');
-  check(results, 'tiles are tappable at full zoom-out', lay.island.T >= 15, lay.island.T.toFixed(1) + 'px per tile');
+  check(results, 'tiles are tappable at full zoom-out', lay.tile >= 14, lay.tile.toFixed(1) + 'px per tile');
   if (lay.panelScrolls) {
     await page.evaluate(() => { document.getElementById('panel-body').scrollTop = 400; });
     const top = await page.evaluate(() => document.getElementById('stage').getBoundingClientRect().top);
@@ -105,90 +102,83 @@ async function testDevice(browser, name) {
   await page.tap('[data-act="tab"][data-arg="build"]');
   await page.evaluate(() => { G.gold += 2000; G.timber += 500; });
   await page.tap('[data-act="build"][data-arg="cottage"]');
-  await page.waitForTimeout(120);  // let the mode bar (with its Cancel button) appear first
+  await page.waitForTimeout(150);
   const spot = await freeTile(page, 'cottage');
   const before = await page.evaluate(() => D.counts.cottage);
   const pt = await tilePoint(page, spot.x, spot.y);
   await page.touchscreen.tap(pt.x, pt.y);
   await page.waitForTimeout(150);
-  const afterFirst = await page.evaluate(() => ({ n: D.counts.cottage, pending: UI.pending, placing: UI.placing, mode: document.getElementById('mode-text').textContent }));
-  check(results, 'first tap previews without building', afterFirst.n === before && afterFirst.pending && afterFirst.pending.x === spot.x, JSON.stringify(afterFirst) + ' spot ' + JSON.stringify(spot) + ' at ' + JSON.stringify(pt));
+  const afterFirst = await page.evaluate(() => ({ n: D.counts.cottage, pending: UI.pending, placing: UI.placing }));
+  check(results, 'first tap previews without building', afterFirst.n === before && afterFirst.pending && afterFirst.pending.x === spot.x && afterFirst.pending.y === spot.y, JSON.stringify(afterFirst) + ' spot ' + JSON.stringify(spot));
   await page.touchscreen.tap(pt.x, pt.y);
   await page.waitForTimeout(150);
-  const afterSecond = await page.evaluate(() => D.counts.cottage);
-  check(results, 'second tap on the same tile builds', afterSecond === before + 1, before + ' -> ' + afterSecond);
+  const afterSecond = await page.evaluate(([x, y]) => ({ n: D.counts.cottage, here: !!buildingAtTile(x, y) }), [spot.x, spot.y]);
+  check(results, 'second tap on the same tile builds there', afterSecond.n === before + 1 && afterSecond.here, JSON.stringify(afterSecond));
 
   // ---- cancel button ----
   await page.tap('[data-act="build"][data-arg="cottage"]');
-  await page.waitForTimeout(100);
+  await page.waitForTimeout(150);
   const cancelVisible = await page.isVisible('#mode-cancel');
   if (cancelVisible) await page.tap('#mode-cancel');
-  const placingAfter = await page.evaluate(() => UI.placing);
-  check(results, 'Cancel button leaves build mode', cancelVisible && placingAfter === null);
+  check(results, 'Cancel button leaves build mode', cancelVisible && await page.evaluate(() => UI.placing) === null);
 
   // ---- promote and station a squad ----
   await page.tap('[data-act="tab"][data-arg="squads"]');
   await page.waitForTimeout(250);
   await page.tap('[data-act="promote"][data-arg$=":bow"]');
-  const cls = await page.evaluate(() => G.squads[0].cls);
-  check(results, 'promote by tap', cls === 'bow', cls);
+  check(results, 'promote by tap', await page.evaluate(() => G.squads[0].cls) === 'bow');
   await page.tap('[data-act="sq-station"]');
-  await page.waitForTimeout(120);
+  await page.waitForTimeout(150);
   const holdSpot = await freeTile(page, 'land');
   const hp = await tilePoint(page, holdSpot.x, holdSpot.y);
   await page.touchscreen.tap(hp.x, hp.y);
   await page.waitForTimeout(150);
-  const held = await page.evaluate(() => ({ mode: G.squads[0].mode, hold: G.squads[0].hold, sel: UI.selSq, text: document.getElementById('mode-text').textContent }));
-  check(results, 'station a squad by tapping a tile', held.mode === 'hold' && held.hold && held.hold.x === holdSpot.x && held.hold.y === holdSpot.y, JSON.stringify(held) + ' spot ' + JSON.stringify(holdSpot) + ' at ' + JSON.stringify(hp));
+  const held = await page.evaluate(() => ({ mode: G.squads[0].mode, hold: G.squads[0].hold }));
+  check(results, 'station a squad by tapping a tile', held.mode === 'hold' && held.hold && held.hold.x === holdSpot.x && held.hold.y === holdSpot.y, JSON.stringify(held) + ' spot ' + JSON.stringify(holdSpot));
 
-  // ---- pinch, pan, zoom buttons (with build mode on, to catch stray taps) ----
+  // ---- gestures, with build mode on so stray taps would show up ----
   await page.tap('[data-act="tab"][data-arg="build"]');
   await page.tap('[data-act="build"][data-arg="cottage"]');
-  await page.waitForTimeout(120);
+  await page.waitForTimeout(150);
   const n0 = await page.evaluate(() => D.counts.cottage);
   const box = await page.locator('#cv').boundingBox();
   const c = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  await pinch(cdp, c, 30, 30 + Math.min(box.width, box.height) * 0.35, 12);
-  await page.waitForTimeout(100);
-  const z1 = await page.evaluate(() => ({ z: R.zoom, cam: R.camX }));
-  check(results, 'pinch zooms in', z1.z > 1.3, z1.z.toFixed(2) + 'x');
-  await touchDrag(cdp, { x: c.x, y: c.y }, { x: c.x + box.width * 0.25, y: c.y + 10 }, 10);
-  await page.waitForTimeout(100);
-  const z2 = await page.evaluate(() => ({ z: R.zoom, cam: R.camX, pending: UI.pending, n: D.counts.cottage }));
-  check(results, 'one-finger drag pans the zoomed map', Math.abs(z2.cam - z1.cam) > 0.3, 'camX ' + z1.cam.toFixed(2) + ' -> ' + z2.cam.toFixed(2));
-  check(results, 'gestures never build or preview by accident', z2.n === n0 && !z2.pending);
-  // a tap still works while zoomed
-  const spot2 = await page.evaluate(() => {
-    const cx = R.w / 2, cy = R.h / 2;
-    let best = null, bd = 1e9;
-    for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
-      if (!canPlaceBasic('cottage', x, y)) continue;
-      const h = VH[tileType(x, y)];
-      const px = R.ox + (x + 0.5) * R.T, py = R.oy + y * R.TH - h * R.HZ + R.TH * 0.5;
-      const cv = document.getElementById('cv').getBoundingClientRect(), canvas = document.getElementById('cv');
-      const RING = [[0, 0]]; for (let k = 0; k < 8; k++) RING.push([Math.cos(k * Math.PI / 4) * 30, Math.sin(k * Math.PI / 4) * 30]);
-      if (RING.some(([dx, dy]) => document.elementFromPoint(cv.left + px + dx, cv.top + py + dy) !== canvas)) continue;
-      const d = Math.hypot(px - cx, py - cy);
-      if (d < bd) { bd = d; best = { x, y }; }
-    }
-    return best;
-  });
+  const cam = () => page.evaluate(() => ({ yaw: VIEW.rig.gYaw, pitch: VIEW.rig.gPitch, dist: VIEW.rig.gDist, tx: VIEW.rig.goal.x, tz: VIEW.rig.goal.z, pending: UI.pending, n: D.counts.cottage }));
+  const c0 = await cam();
+  await touches(cdp, steps(10, t => [{ x: c.x - box.width * 0.2 * t, y: c.y, id: 1 }]));
+  const c1 = await cam();
+  check(results, 'one-finger drag orbits', Math.abs(c1.yaw - c0.yaw) > 0.3, (c1.yaw - c0.yaw).toFixed(2) + ' rad');
+  const spread = Math.min(box.width, box.height) * 0.3;
+  await touches(cdp, steps(12, t => [{ x: c.x - 25 - spread * t, y: c.y, id: 1 }, { x: c.x + 25 + spread * t, y: c.y, id: 2 }]));
+  const c2 = await cam();
+  check(results, 'pinch zooms in', c2.dist < c1.dist * 0.8, c1.dist.toFixed(1) + ' -> ' + c2.dist.toFixed(1));
+  await touches(cdp, steps(10, t => [{ x: c.x - 40 + 60 * t, y: c.y - 30 * t, id: 1 }, { x: c.x + 40 + 60 * t, y: c.y - 30 * t, id: 2 }]));
+  const c3 = await cam();
+  check(results, 'two-finger drag pans', Math.hypot(c3.tx - c2.tx, c3.tz - c2.tz) > 0.3 && Math.abs(c3.dist - c2.dist) < c2.dist * 0.1, 'moved ' + Math.hypot(c3.tx - c2.tx, c3.tz - c2.tz).toFixed(2));
+  check(results, 'gestures never build or preview by accident', c3.n === n0 && !c3.pending);
+  // a two-tap build still lands on the right tile while zoomed and rotated
+  const spot2 = await freeTile(page, 'cottage', 'centre');
   if (spot2) {
     const p2 = await tilePoint(page, spot2.x, spot2.y);
-    await page.touchscreen.tap(p2.x, p2.y); await page.waitForTimeout(80);
-    await page.touchscreen.tap(p2.x, p2.y); await page.waitForTimeout(120);
-    const n3 = await page.evaluate(() => D.counts.cottage);
-    check(results, 'building while zoomed hits the right tile', n3 === n0 + 1 && await page.evaluate(([x, y]) => !!buildingAtTile(x, y), [spot2.x, spot2.y]));
-  } else check(results, 'building while zoomed hits the right tile', false, 'no free tile in view');
-  await page.evaluate(() => { UI.placing = null; UI.pending = null; });
+    await page.touchscreen.tap(p2.x, p2.y); await page.waitForTimeout(100);
+    await page.touchscreen.tap(p2.x, p2.y); await page.waitForTimeout(150);
+    const r = await page.evaluate(([x, y]) => ({ n: D.counts.cottage, here: !!buildingAtTile(x, y) }), [spot2.x, spot2.y]);
+    check(results, 'building while zoomed and rotated hits the right tile', r.n === n0 + 1 && r.here, JSON.stringify(r));
+  } else check(results, 'building while zoomed and rotated hits the right tile', false, 'no free tile in view');
+  await page.evaluate(() => { UI.placing = null; UI.pending = null; VIEW.rig.settle(); VIEW.frame(0.016, 1); });
   await page.screenshot({ path: path.join(out, 'mobile-' + name.replace(/\s+/g, '-').toLowerCase() + '-zoomed.png') });
-  for (let k = 0; k < 6 && await page.evaluate(() => R.zoom > 1); k++) await page.tap('#zoom-out');
-  const z3 = await page.evaluate(() => R.zoom);
-  check(results, 'zoom-out button returns to the whole island', z3 === 1, z3);
-  await page.tap('#zoom-in');
-  const z4 = await page.evaluate(() => R.zoom);
-  check(results, 'zoom-in button', z4 > 1.2, z4);
+
+  // ---- buttons ----
+  const d0 = (await cam()).dist;
   await page.tap('#zoom-out');
+  const d1 = (await cam()).dist;
+  check(results, 'zoom-out button', d1 > d0 * 1.2, d0.toFixed(1) + ' -> ' + d1.toFixed(1));
+  await page.tap('#zoom-in');
+  const d2 = (await cam()).dist;
+  check(results, 'zoom-in button', d2 < d1 * 0.8, d1.toFixed(1) + ' -> ' + d2.toFixed(1));
+  await page.tap('#recentre');
+  const rc = await page.evaluate(() => ({ dist: VIEW.rig.gDist, fit: VIEW.rig.fitDist, pitch: VIEW.rig.gPitch }));
+  check(results, 'recentre shows the whole island', Math.abs(rc.dist - rc.fit) < 0.01 && Math.abs(rc.pitch - 0.9) < 0.01);
 
   // ---- touch target sizes ----
   const small = await page.evaluate(() => {
@@ -202,7 +192,7 @@ async function testDevice(browser, name) {
   });
   check(results, 'touch targets at least 34px', small.length === 0, small.join(', '));
 
-  await page.evaluate(() => { UI.tab = 'squads'; UI.selSq = null; renderPanel(); });
+  await page.evaluate(() => { UI.tab = 'squads'; UI.selSq = null; renderPanel(); VIEW.rig.settle(); VIEW.frame(0.016, 1); });
   await page.waitForTimeout(250);
   await page.screenshot({ path: path.join(out, 'mobile-' + name.replace(/\s+/g, '-').toLowerCase() + '.png') });
   check(results, 'no script errors', errors.length === 0, errors.join(' | '));
@@ -212,7 +202,7 @@ async function testDevice(browser, name) {
 
 (async () => {
   fs.mkdirSync(out, { recursive: true });
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ args: GL_ARGS });
   let failed = 0;
   for (const name of DEVICES) {
     const results = await testDevice(browser, name);
