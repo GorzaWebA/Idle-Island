@@ -205,14 +205,15 @@ async function tilePoint(page, x, y) {
       const done = await page.evaluate(() => {
         const out = window.__b, U = VIEW.units;
         for (let i = 0; i < 40; i++) {
-          if (RT.phase === 'battle' && !RT.units.some(u => u.side === 1) && !RT.boats.some(b => b.state === 'unload')) return true;
+          // done once the wave is over: nobody ashore and no boat still rowing in or unloading
+          if (RT.phase === 'battle' && !RT.units.some(u => u.side === 1) && !RT.boats.some(b => b.wave === G.wave && (b.state === 'unload' || b.state === 'sail'))) return true;
           VIEW.beforeStep(); step(STEP); out.frames++;
           if (out.frames % 4) continue;
           const t0 = performance.now(); U.sync(1, 0.2); VIEW.missiles.sync(1, 0.2); out.ms.push(performance.now() - t0);
           VIEW.frame(0, 1);
           const alive = RT.units.filter(u => u.alive).length;
           out.maxUnits = Math.max(out.maxUnits, alive);
-          if (U.arms.n < alive * 2 || U.legs.n < alive * 2 || U.count() < alive) out.partsOk = false;
+          if (U.arms.n < (alive - U.culled) * 2 || U.legs.n < (alive - U.culled) * 2 || U.count() + U.culled < alive) out.partsOk = false;
           out.boatsSeen = Math.max(out.boatsSeen, U.boats.hulls[0].n + U.boats.hulls[1].n);
           out.oars = Math.max(out.oars, U.boats.oars.n);
           out.arrows = Math.max(out.arrows, VIEW.missiles.arrows.n);
@@ -520,7 +521,7 @@ async function tilePoint(page, x, y) {
           VIEW.frame(STEP * 4, 1);
           const alive = RT.units.filter(u => u.alive).length;
           w.maxUnits = Math.max(w.maxUnits, alive);
-          if (U.arms.n < alive * 2 || U.legs.n < alive * 2 || U.count() < alive) w.partsOk = false;
+          if (U.arms.n < (alive - U.culled) * 2 || U.legs.n < (alive - U.culled) * 2 || U.count() + U.culled < alive) w.partsOk = false;
         }
         return false;
       });
@@ -531,6 +532,28 @@ async function tilePoint(page, x, y) {
     check('waves 1-10 play through', w.best >= 10, 'best wave ' + w.best + ' after ' + w.minutes + ' game minutes');
     check('every live unit drawn throughout', w.partsOk, 'up to ' + w.maxUnits + ' units');
     check('the renderer shows a death for (nearly) every kill', w.deaths >= w.kills * 0.9 && w.deaths <= w.kills, w.deaths + ' animated / ' + w.kills + ' killed');
+    check('no errors', errors.length === 0, errors.slice(0, 3).join(' | '));
+    await ctx.close();
+  }
+
+  console.log('hidden tab');
+  {
+    const { ctx, page, errors } = await open(browser, { viewport: { width: 800, height: 500 }, query: '?quality=low' });
+    const r = await page.evaluate(async () => {
+      const frames = () => VIEW.renderer.info.render.frame;
+      const a = frames();
+      await new Promise(res => setTimeout(res, 400));
+      const b = frames();
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+      await new Promise(res => setTimeout(res, 50));
+      const c = frames();
+      await new Promise(res => setTimeout(res, 500));
+      const d = frames();
+      delete document.hidden;
+      await new Promise(res => setTimeout(res, 400));
+      return { visible: b - a, hidden: d - c, back: frames() - d };
+    });
+    check('nothing is drawn while the tab is hidden', r.visible > 0 && r.hidden === 0 && r.back > 0, JSON.stringify(r));
     check('no errors', errors.length === 0, errors.slice(0, 3).join(' | '));
     await ctx.close();
   }
