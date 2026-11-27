@@ -218,7 +218,8 @@ Phones and tablets get the same game with these adjustments:
 ## 10. 3D rendering
 
 The game is drawn as a small low-poly diorama with Three.js (r159, vendored). The simulation is
-unchanged and still runs headless; the renderer only reads it.
+unchanged and still runs headless; the renderer only reads it. Browsers without WebGL get the
+classic 2D map instead (see *The classic 2D map* below).
 
 ### Architecture
 
@@ -475,6 +476,49 @@ The renderer derives what the sim doesn't store:
   drawn. A boat has run aground when its `state` turns from `sail` to `unload`. Again no sim hook.
 
 Its own per-unit state lives in Maps keyed by id. It never writes to sim objects.
+
+### Performance
+
+Budgets, checked by `node tools/perf.js` (headless Chromium with software WebGL, so it measures
+what the code controls: JavaScript time per frame, draw calls, triangles and memory, not GPU time):
+
+| Scene | Budget | Measured |
+| --- | --- | --- |
+| Wave-20 battle, Pixel 7 profile, CPU slowed 4×, Medium | JS ≤ 12 ms a frame on average, ≤ 24 ms at the 95th percentile, ≤ 150 draw calls, ≤ 150k triangles | 3.6–5.4 ms, 7.1–11.8 ms, 53–54 calls, 55–56k triangles, about 70 units |
+| Same battle on desktop, High | JS ≤ 6 ms average, ≤ 12 ms p95 | 0.9–1.2 ms, 2.0–2.7 ms, 53–56 calls, 48–50k triangles |
+| 20 islands in a row (Sail On) | Geometries and textures back to the same count, heap growth ≤ 6 MB | 27 → 27 geometries, 3 → 3 textures, +0.8 to 0.9 MB |
+
+(Ranges are two runs on a shared machine.)
+
+How it stays cheap:
+
+* **Instancing everywhere**: one draw call per model variant, figure part, prop kind and effect
+  pool. A full battle is about 50 draw calls, whatever the number of units.
+* **Buildings only re-upload when something changed**: a new building, a different tier or ruin,
+  a construction or tier-up animation, a hit flash, or a visible step in damage. A quiet
+  settlement writes nothing to the GPU.
+* **Figures outside the view are animated but not drawn.** When zoomed in on a phone, most are skipped.
+* **No shader re-checks**: every transparent double-sided material sets `forceSinglePass`, and the
+  terrain has its own shadow-depth material. Without these, three.js re-evaluated shader programs
+  for a handful of materials every frame (about half of all per-frame garbage).
+* **Few allocations per frame**: scratch vectors and matrices, typed-array particle pools, cached
+  route and model lookups, and labels moved only when they shift by a whole pixel. Garbage per frame
+  dropped from about 70 KB to about 24 KB; most of what's left is inside three.js's renderer.
+  That works out to a minor collection every several seconds, each well under a millisecond.
+* **Nothing is drawn while the tab is hidden**; the sim's offline catch-up covers the time away.
+* The **quality levels** (above) trade pixels, shadows, effects and grass for speed. Auto quality
+  picks one in the first seconds.
+
+GPU cost can only be judged on real devices. The software renderer used in testing runs at about
+10 to 15 frames a second, and auto quality correctly drops to Low there.
+
+### The classic 2D map
+
+`js/render.js` stays as a fallback for browsers without WebGL (some locked-down or very old
+devices, or WebGL switched off), and for `?2d`. It costs about 36 KB of a 1.2 MB bundle (Three.js
+is most of the rest), it is tested on every smoke run, and it means nobody gets a blank page.
+New 3D-only touches (fire, sound, Settings graphics) don't apply to it. The Settings tab says so,
+and a banner explains the flat map when the fallback kicks in.
 
 ## 11. Balance targets
 

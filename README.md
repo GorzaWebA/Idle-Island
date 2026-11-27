@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://gorzaweba.github.io/Idle-Island/">
-    <img src="assets/banner.png" alt="Idle Island: a small island settlement of cottages, towers and palisades while red-clad raiders storm its beaches" width="100%">
+    <img src="assets/banner.png" alt="Idle Island at dusk: a low-poly 3D island settlement with lit windows and burning cottages while red-clad raiders storm its beaches" width="100%">
   </a>
 </p>
 
@@ -8,15 +8,15 @@
   <a href="https://gorzaweba.github.io/Idle-Island/"><img alt="Play now in your browser" src="https://img.shields.io/badge/play_now-in_your_browser-e3b04b?style=for-the-badge&labelColor=1a4150"></a>
   <a href="https://gorzaweba.github.io/Idle-Island/"><img alt="Hosted on GitHub Pages" src="https://img.shields.io/badge/hosted_on-GitHub_Pages-f4ecd8?style=for-the-badge&logo=github&logoColor=white&labelColor=1a4150"></a>
   <img alt="Vanilla JavaScript" src="https://img.shields.io/badge/vanilla-JavaScript-f7df1e?style=for-the-badge&logo=javascript&logoColor=f7df1e&labelColor=1a4150">
-  <img alt="No dependencies" src="https://img.shields.io/badge/dependencies-none-77a253?style=for-the-badge&labelColor=1a4150">
+  <img alt="Three.js, vendored, no build step" src="https://img.shields.io/badge/three.js-vendored,_no_build_step-77a253?style=for-the-badge&labelColor=1a4150">
   <img alt="Plays on desktop and mobile" src="https://img.shields.io/badge/plays_on-desktop_%26_mobile-9fb0ee?style=for-the-badge&labelColor=1a4150">
 </p>
 
 <h3 align="center">Hold the isle. The longboats are coming.</h3>
 
 <p align="center">
-  An idle base-defence game for the browser. Settle a small, procedurally generated island, build it up,<br>
-  and keep it standing while raiders row in from every side. Battles fight themselves;<br>
+  An idle base-defence game for the browser, played on a little low-poly 3D island you can turn and zoom.<br>
+  Settle it, build it up, and keep it standing while raiders row in from every side. Battles fight themselves;<br>
   you decide what to build, where to put it, how to train your squads and when to sail on.
 </p>
 
@@ -27,14 +27,15 @@
 </p>
 
 <p align="center">
-  <img src="assets/battle.gif" alt="Animated battle: raiders land on the beaches and squads of shieldbearers, bowmen and pikemen meet them among the cottages" width="720">
+  <img src="assets/battle.gif" alt="Animated 3D battle: the camera circles as raiders fight squads of shieldbearers, bowmen and pikemen among the cottages, one of them burning" width="720">
 </p>
 
 ---
 
 ## ✨ Features
 
-- 🏝️ **A new island every run.** Beaches, cliffs, highland and forest are generated from a seed, and each island has a trait such as *Fertile*, *Fogbound* or *Many Shores*.
+- 🏝️ **A new island every run.** Beaches, cliffs, highland and forest are generated from a seed, and each island has a trait such as *Fertile*, *Fogbound* or *Many Shores*, which also shows in its look: lush meadows, heather, driftwood, sea stacks or rolling mist.
+- 🎲 **A little world to turn in your hands.** A low-poly 3D diorama you can orbit, pan and zoom, with every model, tree and wave built in code. Surf washes onto the beaches, houses burn and smoke, longboats leave wakes, and at dusk the windows light up.
 - ⛵ **Raiders you can see coming.** Longboats appear on the horizon during the countdown. Markers at the screen edge show where each one will land and how many raiders it carries.
 - 🛡️ **Squads with names and personalities.** Each commander has a trait. Promote your militia to Shieldbearers, Bowmen or Pikemen, each with its own automatic ability.
 - 🔥 **Houses that burn.** Raiders torch whatever they reach. Ruins stop producing, and a burning cottage costs you some of your gold.
@@ -124,7 +125,7 @@ Commander traits: *Stalwart*, *Fierce*, *Swift*, *Keen-eyed*, *Hardy*, *Lucky*.
 
 ## 🛠️ Run it locally
 
-Clone the repository and open `index.html`. There's no build step, no server and no dependencies.
+Clone the repository and open `index.html`. There's no build step, no server and nothing to install: Three.js and the fonts are in the repository, and every model is built in code.
 
 ```sh
 git clone https://github.com/GorzaWebA/Idle-Island.git
@@ -160,7 +161,7 @@ Choose under **Settings → Pages → Deploy from a branch**:
 | `js/render3d.js` | 3D renderer: scene, lights, shadows, loop hooks, the `VIEW` interface |
 | `js/r3d/*.js` | 3D parts: `builder` (procedural meshes), `terrain`, `sea`, `camera`, `picking`, `models` and `buildings`, `props`, `unitmodels` and `units`, `missiles`, `fx` (particles, fire, foam, glows), `ui3d` (selection, paths, flags), `hud` (boat badges, health bars, labels) |
 | `js/theme3d.js` | Every 3D colour, with daylight and dusk variants |
-| `js/render.js` | The classic 2D map, used when WebGL is unavailable or with `?2d` |
+| `js/render.js` | The classic 2D map: a fallback for browsers without WebGL (or `?2d`) |
 | `js/settings.js` | Player preferences for this device, stored apart from the save |
 | `js/audio.js` | Procedural WebAudio sound effects and surf |
 | `js/ui.js` | Header, tabbed panel (including Settings), map input |
@@ -178,12 +179,13 @@ node tools/balance.js 60 3     # a greedy bot plays 3 islands for 60 game-minute
 node tools/balance.js 45 2 3   # the same, with every Saga at level 3
 node tools/smoke.js            # 3D game in headless Chromium (software WebGL): plays, builds, orbits, zooms, battles, fire and water, markers, settings, sound
 node tools/mobile.js           # touch tests (orbit, pinch, pan, two-tap build, Settings) on phones and a tablet
+node tools/perf.js             # wave-20 battle on a 4x-slowed phone profile and on desktop, plus 20 islands in a row: frame cost, draw calls, memory
 node tools/screenshots.js      # regenerates the images in assets/ (needs ffmpeg for the GIF)
 node tools/build.js            # bundles everything into dist/idle-island.html
 tools/deploy-pages.sh          # publishes the game to the gh-pages branch
 ```
 
-`smoke.js`, `mobile.js` and `screenshots.js` need Playwright with Chromium.
+`smoke.js`, `mobile.js`, `perf.js` and `screenshots.js` need Playwright with Chromium.
 
 ## 🙏 Inspiration
 
