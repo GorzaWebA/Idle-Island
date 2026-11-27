@@ -154,7 +154,7 @@ Choose under **Settings → Pages → Deploy from a branch**:
 | `js/state.js` | Persistent state, derived stats, economy actions, save/load, offline progress |
 | `js/sim.js` | Fixed-step battle simulation: boats, flow-field raider pathing, squad AI, combat |
 | `js/render3d.js` | 3D renderer: scene, lights, shadows, loop hooks, the `VIEW` interface |
-| `js/r3d/*.js` | 3D parts: `builder` (procedural meshes), `terrain`, `sea`, `camera`, `picking`, `buildings`, `units`, `ui3d` |
+| `js/r3d/*.js` | 3D parts: `builder` (procedural meshes), `terrain`, `sea`, `camera`, `picking`, `models` and `buildings`, `props`, `unitmodels` and `units`, `missiles`, `fx` (particles, fire, foam, glows), `ui3d` |
 | `js/theme3d.js` | Every 3D colour, with daylight and dusk variants |
 | `js/render.js` | The classic 2D map, used when WebGL is unavailable or with `?2d` |
 | `js/ui.js` | Header, tabbed panel, map input |
@@ -170,7 +170,7 @@ The game makes no network requests: Three.js and the fonts ship with it, and eve
 ```sh
 node tools/balance.js 60 3     # a greedy bot plays 3 islands for 60 game-minutes each and reports pacing
 node tools/balance.js 45 2 3   # the same, with every Saga at level 3
-node tools/smoke.js            # 3D game in headless Chromium (software WebGL): plays, builds, orbits, zooms
+node tools/smoke.js            # 3D game in headless Chromium (software WebGL): plays, builds, orbits, zooms, battles, fire and water
 node tools/mobile.js           # touch tests (orbit, pinch, pan, two-tap build) on phones and a tablet
 node tools/screenshots.js      # regenerates the images in assets/ (needs ffmpeg for the GIF)
 node tools/build.js            # bundles everything into dist/idle-island.html

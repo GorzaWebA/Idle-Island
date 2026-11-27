@@ -226,18 +226,18 @@ unchanged and still runs headless; the renderer only reads it.
 | `js/render3d.js` | Scene, lights, shadows, resize, theme, and the `VIEW` interface below |
 | `js/r3d/builder.js` | `MeshBuilder`: boxes, prisms, cylinders, polygons with flat normals and vertex colours. Faces orient from an outward vector |
 | `js/r3d/terrain.js` | Tile grid to stepped terrain: grass 0.36, highland 0.92, beaches sloping from 0.16 to −0.06, rocky cliff walls down to the seabed, baked shade at cliff feet, instanced pines |
-| `js/r3d/sea.js` | One shader for the sea: vertex waves near the island, ripple normals, depth colour from a baked distance-to-land texture, shoreline foam, sun glints, fog. A flat outer ring carries it to the horizon |
+| `js/r3d/sea.js` | One shader for the sea: vertex waves near the island, ripple normals, depth colour and surf from a baked shoreline texture (distance to land, distance to a beach, depth over the sand), sun glints, fog. A flat outer ring carries it to the horizon |
 | `js/r3d/camera.js` | Orbit rig with easing and clamps (pitch 24°–78°, zoom limits from the island's fit, target inside the island) |
 | `js/r3d/picking.js` | Screen point to sim tile: ray against one box per tile column (seabed up to the surface or building top) |
 | `js/r3d/models.js` | Procedural building models: seven types × three tiers, a ruin per type, palisades by neighbour mask, and attachment points for smoke, flags and saws |
-| `js/r3d/buildings.js` | Draws buildings as one `InstancedMesh` per model variant; construction, tier-up, hit flash, collapse, chimney smoke, flags, saws |
-| `js/r3d/props.js` | Pines and round trees that sway in a shared wind, rocks and sea stacks, grass tufts, flowers (five instanced draw calls) |
-| `js/r3d/fx.js` | Pooled particles (typed arrays, no per-frame allocation): smoke, dust, ash |
+| `js/r3d/buildings.js` | Draws buildings as one `InstancedMesh` per model variant; construction, tier-up, hit flash, collapse, chimney smoke, flags, saws, fire and damage, lit windows at dusk |
+| `js/r3d/props.js` | Pines and round trees that sway in a shared wind, rocks and sea stacks, grass tufts, flowers, heather, moss and driftwood, mixed per island trait (one instanced draw call per kind) |
+| `js/r3d/fx.js` | Camera-facing sprite particles on one small shader (typed arrays, no per-frame allocation): smoke, dust, flames, spray, additive sparks, flat foam and mist, immediate-mode glows, and rings and ripples |
 | `js/r3d/unitmodels.js` | Figures (a body per kind, arms, legs, weapons, shields, banner), the longboat and its oars, arrows, blob shadows, rings |
 | `js/r3d/units.js` | Animated figures and longboats, interpolated between sim steps |
 | `js/r3d/missiles.js` | Arrows along the sim's arcs with streaks, fire arrows, volleys, and reactions to sim effects (hits, bashes, splashes) |
 | `js/r3d/ui3d.js` | Tile highlight, selection outline, placement ghost with its yield label, range ring draped over the terrain |
-| `js/theme3d.js` | All colours. Light and dark variants change only sky, sun and sea, so a theme switch never rebuilds geometry |
+| `js/theme3d.js` | All colours. Light (noon) and dark (dusk) variants change only sky, sun, sea and smoke tint, so a theme switch never rebuilds geometry. Island traits add palette overrides and a Fogbound sky |
 
 World units: 1 tile = 1 unit, X = tile x, Z = tile y, Y up, sea level at 0. Tile footprints are
 exactly the sim's, so building, inspecting and holding work unchanged.
@@ -264,9 +264,14 @@ at 3 and 6):
 * **Animation** comes from the renderer's own per-building state:
   * A new or rebuilt building rises with a small overshoot (0.7 s) in a ring of dust.
   * A building pops slightly when it reaches a new tier.
-  * Buildings flash when hit, and collapse to their ruin in a burst of ash.
-  * Ruins smoulder until rebuilt.
+  * Buildings flash when hit, and collapse to their ruin in a burst of flame, sparks and ash.
   * Chimneys smoke, flags wave and the lumber saw works.
+* **Fire** follows damage. A building blackens as it loses health. Past 30 % damage it catches fire,
+  burning harder the lower its health: flames on the roof, embers, a dark smoke column drifting with
+  the wind, and firelight on the ground. A fresh ruin burns fiercely for about 12 seconds, dies down
+  to a smoulder with a faint glow, and clears to thin wisps once rebuilding starts. Repairs at the
+  end of a wave put fires out.
+* **Dusk**: in the dark theme, doors and windows that face the camera glow and flicker.
 * **Placement ghost**: a translucent copy of the building, green when it can be built, amber when
   you can't afford it and red when it can't go there. It carries a label with the yield or the
   reason, and watchtowers show their range ring.
@@ -312,10 +317,45 @@ at 3 and 6):
 * **Missiles** fly the sim's own arcs and are extrapolated within a step, so they glide. Arrows
   point along their flight with a faint streak. Fire arrows glow and drop sparks, and volleys
   rain onto their area.
-* **Effects**: sparks on hits, shockwave rings on shield bashes, dust and a ring where a volley
-  lands, embers when a building falls, a green ring when a squad refills.
+* **Effects**: sparks on melee hits and on raiders hacking at buildings, shockwave rings on shield
+  bashes, dust and a ring where a volley lands, a heat ring when a building falls, a green ring when
+  a squad refills. Arrows that land kick up dust, splash into the sea, or burst into sparks if they
+  were burning.
+* **Water**: longboats leave foam at the stern, spreading ripples and spray off the bow, and throw
+  up spray when they run aground. The drowned go under with a crown of droplets, two ripples and a
+  patch of foam, and anyone wading ashore leaves rings.
 * **Feedback**: gold numbers rise from kills as pooled screen labels. Warlord blows shake the
-  camera, unless the system asks for reduced motion.
+  camera, and when the Warlord's longboat first appears the camera leans part of the way towards it
+  (unless the player is moving the camera or moved it in the last two seconds). Neither happens when
+  the system asks for reduced motion.
+
+### Effects, light and islands
+
+* **Particles** are camera-facing quads drawn by one shader in a few pools: smoke and dust (normal
+  blending, lit from above, dimmed at dusk), flames (an upright flame shape that is never dimmed),
+  additive sparks and embers, and flat foam and mist lying on the water. The soft shapes are drawn
+  in code into one 64×64 texture at startup. Each particle has its own colour fading to an end
+  colour, opacity, size, spin and gravity. Pools recycle the oldest slot when full, so effects can
+  never grow without bound. A `density` setting (Phase 5) thins them out.
+* **Glows** are immediate-mode sprites redrawn each frame: firelight lying on the ground, and
+  camera-facing lights for windows, fires and fire arrows. They lean towards the camera so a
+  window's own wall doesn't cut them.
+* **Surf**: the sea's shoreline texture also knows where beaches are and how deep the water stands
+  over the sand. Beaches get a wide swash that washes up and back with breaking lines rolling in;
+  cliffs get a thin line of foam. Because depth over the sand is part of the measure, foam follows
+  the real waterline rather than the tile squares.
+* **Sun**: the sun swings slowly back and forth (about ±18° over twelve minutes), so shadows move
+  over a long session.
+* **Island traits** change the look, never the rules:
+
+  | Trait | Look |
+  | --- | --- |
+  | Fertile | Brighter, lusher grass, more tufts and about two and a half times the flowers |
+  | Timberland | Deeper green ground, denser woods, mossy mounds on the forest floor |
+  | Highlands | Olive heights covered in purple heather and boulders |
+  | Many Shores | Driftwood washed up on the beaches |
+  | Rocky Coast | More and bigger sea stacks, boulders on the beaches |
+  | Fogbound | A grey sky, fog that closes in around the camera (zooming in clears it a little) and banks of mist drifting over the water |
 
 ### The VIEW interface
 
@@ -360,6 +400,9 @@ The renderer derives what the sim doesn't store:
 * **Animation triggers.** Attacks show as jumps in `cdT` and hits as `flash`. A unit that leaves
   `RT.units` fell if its `hp` is at or below zero, drowned if it stands over water, and simply
   fades if it was `fleeing`. No sim hook was needed.
+* **Fire and impacts.** Burning comes from `hp`/`maxHp`, `ruined` and `rebuild`. An arrow has
+  landed when a projectile that was in flight last frame is gone; it is placed where it was last
+  drawn. A boat has run aground when its `state` turns from `sail` to `unload`. Again no sim hook.
 
 Its own per-unit state lives in Maps keyed by id. It never writes to sim objects.
 

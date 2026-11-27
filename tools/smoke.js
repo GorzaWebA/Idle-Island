@@ -4,7 +4,9 @@
  *  - loads the game, plays 30 s of game time while rendering, checks for console errors
  *  - checks the canvas isn't blank, builds a cottage by clicking its tile,
  *    orbits with the mouse, zooms with the wheel, rotates with Q, recentres
- *  - a dark-theme battle, and the classic 2D fallback (?2d)
+ *  - a dark-theme battle, a Warlord battle, fire/water/feel effects and island traits,
+ *    waves 1-10 rendered as they play, reduced motion, the single-file build,
+ *    and the classic 2D fallback (?2d)
  * Saves screenshots. Exit code 1 on any failure.
  *
  *   node tools/smoke.js [screenshotDir]
@@ -253,6 +255,114 @@ async function tilePoint(page, x, y) {
     await ctx.close();
   }
 
+  console.log('fire, water and feel');
+  {
+    const { ctx, page, errors } = await open(browser, { viewport: { width: 1000, height: 640 } });
+    await page.addScriptTag({ path: path.join(__dirname, 'bot.js') });
+    // A built-up island on a Fogbound-free trait, then hand-made damage, a ruin and a wave.
+    await page.evaluate(() => {
+      RNG = mulberry32(99); G.paused = true;
+      const classes = ['sword', 'bow', 'pike', 'bow', 'sword', 'pike']; let t = 0, nb = 0;
+      while (t < 6 * 60) { step(STEP); t += STEP; if (t >= nb) { nb = t + 1; botAct(classes); } if (!G.autoAdvance) G.autoAdvance = true; }
+      resetRuntime(); VIEW.units.clear();
+      for (const b of G.buildings) { b.ruined = false; b.rebuild = 0; b.hp = b.maxHp; }
+      VIEW.frame(0.05, 1);
+    });
+    const f = await page.evaluate(async () => {
+      const r = {}, B = VIEW.buildings, frames = async (n, dt) => { for (let i = 0; i < n; i++) { VIEW.frame(dt, 1); if (i % 20 === 19) await new Promise(res => setTimeout(res, 5)); } };
+      const flames = () => { const P = VIEW.puffs; let n = 0; for (let i = 0; i < P.max; i++) if (P.alive[i] && P.emit[i]) n++; return n; };
+      const others = G.buildings.filter(b => b.type !== 'hall' && b.type !== 'palisade');
+      const hurt = others[0], ruin = others[1];
+      // healthy at noon: no fire, no lit windows
+      await frames(10, 0.05);
+      r.calmFlames = flames(); r.calmLights = VIEW.lights.n;
+      // a badly damaged building blackens and burns
+      hurt.hp = hurt.maxHp * 0.3;
+      await frames(40, 0.05);
+      const sh = B.state.get(hurt.id);
+      r.burn = +sh.burn.toFixed(2); r.flames = flames(); r.sparks = VIEW.sparks.n; r.glow = VIEW.glow.n;
+      // a ruin burns fiercely, then smoulders
+      ruin.ruined = true; ruin.hp = 0; ruin.rebuild = 0;
+      await frames(30, 0.05);
+      const sr = B.state.get(ruin.id);
+      r.ruinBurn = +sr.burn.toFixed(2);
+      await frames(150, 0.1);
+      r.ruinLater = +sr.burn.toFixed(2);
+      const puffs0 = VIEW.puffs.n; await frames(30, 0.05); r.smoulderPuffs = VIEW.puffs.n; void puffs0;
+      hurt.hp = hurt.maxHp; ruin.ruined = false; ruin.hp = ruin.maxHp;
+      await frames(60, 0.1);
+      r.outFlames = flames();
+      // dusk: doors and windows glow
+      document.documentElement.setAttribute('data-theme', 'dark');
+      await new Promise(res => setTimeout(res, 30));       // the theme observer runs
+      await frames(5, 0.05);
+      r.duskLights = VIEW.lights.n;
+      document.documentElement.setAttribute('data-theme', 'light');
+      await new Promise(res => setTimeout(res, 30));
+      await frames(2, 0.05);
+      // the sea knows where beaches and cliffs are
+      const tex = VIEW.sea.mesh.children[0].material.uniforms.uDist.value.image.data;
+      let beach = 0, cliff = 0, wet = 0;
+      for (let i = 0; i < tex.length; i += 4) {
+        if (tex[i] > 0 && tex[i] < 40) { if (tex[i + 1] - tex[i] < 10) beach++; else if (tex[i + 1] - tex[i] > 60) cliff++; }
+        if (tex[i] === 0 && tex[i + 2] > 0) wet++;
+      }
+      r.shore = { beach, cliff, wet };
+      // the sun drifts
+      const s0 = VIEW.sun.position.clone(); VIEW.time += 150; VIEW.sunT = 0; VIEW.frame(0.016, 1);
+      r.sunMoved = +VIEW.sun.position.distanceTo(s0).toFixed(2);
+      // the camera leans towards the Warlord's boat, unless the player is busy
+      const rig = VIEW.rig; rig.recentre(true); rig.idle = 5;
+      const g0 = rig.goal.clone();
+      r.nudged = rig.nudge(g0.x + 30, g0.z); r.nudge = +rig.goal.distanceTo(g0).toFixed(2);
+      rig.recentre(true); rig.idle = 0.5; r.busyNudge = rig.nudge(g0.x + 30, g0.z);
+      rig.recentre(true);
+      // a wave: wakes, ripples, foam, arrow impacts
+      let impacts = 0; const imp = VIEW.missiles.impact.bind(VIEW.missiles); VIEW.missiles.impact = p => { impacts++; imp(p); };
+      r.ripples = 0; r.foam = 0; r.calls = 0;
+      while (RT.phase === 'countdown' && RT.timer > 8) { VIEW.beforeStep(); step(STEP); }
+      let fought = false;
+      for (let i = 0; i < 1600; i++) {
+        VIEW.beforeStep(); step(STEP);
+        if (RT.phase === 'battle') fought = true; else if (fought) break;
+        if (i % 2) continue;
+        VIEW.frame(STEP * 2, 1);
+        r.ripples = Math.max(r.ripples, VIEW.ripples.n); r.foam = Math.max(r.foam, VIEW.foam.n);
+        r.calls = Math.max(r.calls, VIEW.renderer.info.render.calls);
+        if (i % 30 === 28) await new Promise(res => setTimeout(res, 5));
+      }
+      r.impacts = impacts; r.fought = fought;
+      r.pools = { puffs: VIEW.puffs.n <= VIEW.puffs.max, sparks: VIEW.sparks.n <= VIEW.sparks.max };
+      // island traits
+      const look = async tr => {
+        G.island = { seed: 4242, trait: tr }; G.buildings = []; G.squads = []; setupIsland();
+        VIEW.frame(0.016, 1); await frames(30, 0.5);
+        return { flowers: VIEW.props.counts.flowers, logs: VIEW.props.counts.logs, mist: VIEW.mist.n, fogNear: VIEW.scene.fog.near, rocks: VIEW.props.counts.rocks };
+      };
+      r.traits = { fertile: await look('fertile'), fog: await look('fog'), shores: await look('shores'), highlands: await look('highlands') };
+      return r;
+    });
+    await page.screenshot({ path: path.join(out, '3d-fog.png') });
+    check('a calm settlement at noon has no fire and no lit windows', f.calmFlames === 0 && f.calmLights === 0, f.calmFlames + ' flames, ' + f.calmLights + ' lights');
+    check('a badly damaged building burns', f.burn > 0.3 && f.flames > 4 && f.sparks > 0 && f.glow > 0, JSON.stringify({ burn: f.burn, flames: f.flames, sparks: f.sparks, glow: f.glow }));
+    check('a fresh ruin burns, then smoulders', f.ruinBurn > 0.5 && f.ruinLater < 0.05 && f.smoulderPuffs > 0, f.ruinBurn + ' -> ' + f.ruinLater + ', ' + f.smoulderPuffs + ' puffs');
+    check('fires go out once repaired', f.outFlames === 0, f.outFlames + ' flames');
+    check('doors and windows glow at dusk', f.duskLights > 2, f.duskLights + ' lights');
+    check('the sea tells beaches from cliffs', f.shore.beach > 20 && f.shore.cliff > 20 && f.shore.wet > 0, JSON.stringify(f.shore));
+    check('the sun drifts slowly', f.sunMoved > 0.5, f.sunMoved);
+    check('the camera leans towards the Warlord, unless the player is busy', f.nudged && f.nudge > 1 && !f.busyNudge, f.nudge);
+    check('boats leave wakes and ripples', f.ripples > 0 && f.foam > 0, f.ripples + ' ripples, ' + f.foam + ' foam');
+    check('arrows land with an impact', f.impacts > 0, f.impacts + ' impacts');
+    check('effects stay within their pools', f.pools.puffs && f.pools.sparks);
+    check('draw calls stay low with every effect', f.calls < 90, f.calls + ' calls');
+    const t = f.traits;
+    check('Fertile islands have more flowers', t.fertile.flowers > t.fog.flowers * 1.5, t.fertile.flowers + ' vs ' + t.fog.flowers);
+    check('Fogbound islands close the fog in and grow mist', t.fog.fogNear < 25 && t.fog.mist > 0 && t.fertile.mist === 0, JSON.stringify(t.fog));
+    check('Many Shores has driftwood', t.shores.logs > 2, t.shores.logs + ' logs');
+    check('no errors', errors.length === 0, errors.slice(0, 3).join(' | '));
+    await ctx.close();
+  }
+
   console.log('waves 1 to 10, rendered as they play');
   {
     const { ctx, page, errors } = await open(browser, { viewport: { width: 760, height: 480 } });
@@ -302,8 +412,9 @@ async function tilePoint(page, x, y) {
     const page = await ctx.newPage();
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => typeof VIEW !== 'undefined' && VIEW && VIEW.rig, null, { timeout: 60000 });
-    const r = await page.evaluate(() => { VIEW.rig.shake(0.2); return { amp: VIEW.rig.shakeAmp, reduced: VIEW.rig.reducedMotion }; });
+    const r = await page.evaluate(() => { VIEW.rig.shake(0.2); VIEW.rig.idle = 5; return { amp: VIEW.rig.shakeAmp, reduced: VIEW.rig.reducedMotion, nudge: VIEW.rig.nudge(VIEW.rig.goal.x + 20, VIEW.rig.goal.z) }; });
     check('no screen shake when the system asks for reduced motion', r.reduced && r.amp === 0, JSON.stringify(r));
+    check('no camera nudge either', r.nudge === false);
     await ctx.close();
   }
 
