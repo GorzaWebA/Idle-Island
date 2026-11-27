@@ -2,29 +2,50 @@
 /* Sea: one large plane with a small custom shader.
    - gentle vertex waves plus finer ripple normals in the fragment shader
    - colour from shallow to deep using a distance-to-land texture baked from the island
-   - see-through shallows, shoreline foam, sun glints, linear fog matching the scene */
+   - see-through shallows, sun glints, linear fog matching the scene
+   - surf: a second channel of that texture marks beaches, so waves wash up onto the sand while
+     cliffs only get a thin line of foam */
 window.R3 = window.R3 || {};
 (function (R3) {
   const RES = 4;        // distance texels per tile
   const MAXD = 4;       // distances are stored up to 4 tiles
   const PAD = 8;        // the texture reaches this many tiles past the map, so depth fades smoothly
 
-  // Distance (in tiles) from each texel centre to the nearest land tile square.
+  /* Per texel:
+       R: distance (in tiles) to the nearest land tile square
+       G: distance to the nearest beach tile, so surf rolls onto beaches and cliffs get a thin line
+       B: how deep the water stands over the sand (beach tiles slope under the surface). Sea next
+          to a beach carries on from the depth at the beach's edge, so the shoreline measure
+          (R + depth) is continuous and foam follows the real waterline, not the tile squares.
+     Only tiles within MAXD are looked at. */
+  const SUB = 0.12;     // B channel range (tiles of depth)
   function distanceTexture() {
-    const w = (MAP_W + PAD * 2) * RES, h = (MAP_H + PAD * 2) * RES, data = new Uint8Array(w * h);
-    const land = [];
-    for (let z = 0; z < MAP_H; z++) for (let x = 0; x < MAP_W; x++) if (isLandTile(x, z)) land.push(x, z);
+    const w = (MAP_W + PAD * 2) * RES, h = (MAP_H + PAD * 2) * RES, data = new Uint8Array(w * h * 4);
+    const kind = new Uint8Array(MAP_W * MAP_H);        // 0 sea, 1 land, 2 beach
+    for (let z = 0; z < MAP_H; z++) for (let x = 0; x < MAP_W; x++) kind[z * MAP_W + x] = isLandTile(x, z) ? (tileType(x, z) === T_SAND ? 2 : 1) : 0;
+    const R = MAXD + 1;
     for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
       const px = (i + 0.5) / RES - PAD, pz = (j + 0.5) / RES - PAD;
-      let best = MAXD * MAXD;
-      for (let k = 0; k < land.length; k += 2) {
-        const dx = Math.max(land[k] - px, 0, px - land[k] - 1), dz = Math.max(land[k + 1] - pz, 0, pz - land[k + 1] - 1);
-        const d = dx * dx + dz * dz;
-        if (d < best) { best = d; if (d === 0) break; }
+      let land = MAXD * MAXD, sand = MAXD * MAXD;
+      const x0 = Math.max(0, Math.floor(px) - R), x1 = Math.min(MAP_W - 1, Math.floor(px) + R);
+      const z0 = Math.max(0, Math.floor(pz) - R), z1 = Math.min(MAP_H - 1, Math.floor(pz) + R);
+      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+        const k = kind[z * MAP_W + x];
+        if (!k) continue;
+        const dx = Math.max(x - px, 0, px - x - 1), dz = Math.max(z - pz, 0, pz - z - 1), d = dx * dx + dz * dz;
+        if (d < land) land = d;
+        if (k === 2 && d < sand) sand = d;
       }
-      data[j * w + i] = Math.round(Math.min(1, Math.sqrt(best) / MAXD) * 255);
+      const o = (j * w + i) * 4, dl = Math.sqrt(land), ds = Math.sqrt(sand);
+      let sub = 0;
+      if (land === 0) sub = Math.max(0, -R3.Terrain.heightAt(px, pz));
+      else { const k = Math.max(0, Math.min(1, (ds - dl) / 0.3)); sub = 0.06 * (1 - k * k * (3 - 2 * k)); }
+      data[o] = Math.round(Math.min(1, dl / MAXD) * 255);
+      data[o + 1] = Math.round(Math.min(1, ds / MAXD) * 255);
+      data[o + 2] = Math.round(Math.min(1, sub / SUB) * 255);
+      data[o + 3] = 255;
     }
-    const tex = new THREE.DataTexture(data, w, h, THREE.RedFormat, THREE.UnsignedByteType);
+    const tex = new THREE.DataTexture(data, w, h, THREE.RGBAFormat, THREE.UnsignedByteType);
     tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearFilter;
     tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
     tex.needsUpdate = true;
@@ -76,8 +97,16 @@ window.R3 = window.R3 || {};
     ${WAVES}
     void main() {
       vec2 uv = (vWorld.xz + ${PAD.toFixed(1)}) / uMapSize;
-      float d = ${MAXD.toFixed(1)};
-      if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) d = texture2D(uDist, uv).r * ${MAXD.toFixed(1)};
+      float d = ${MAXD.toFixed(1)}, db = ${MAXD.toFixed(1)};
+      if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
+        vec4 tx = texture2D(uDist, uv);
+        db = tx.g * ${MAXD.toFixed(1)};
+        d = tx.r * ${MAXD.toFixed(1)};
+        db += tx.b * ${(SUB * 3).toFixed(2)};
+        d += tx.b * ${(SUB * 3).toFixed(2)};     // shoreline measure: distance plus depth over sand
+      }
+      // how much of a beach this stretch of shore is: 1 on a beach, 0 under a cliff
+      float beach = 1.0 - smoothstep(0.25, 1.2, db - d);
       vec2 g = waveGrad(vWorld.xz, uTime);
       vec3 n = normalize(vec3(-g.x, 1.0, -g.y));
       vec3 v = normalize(cameraPosition - vWorld);
@@ -86,10 +115,15 @@ window.R3 = window.R3 || {};
       col = mix(col, uSky, fres * 0.45);
       vec3 hv = normalize(normalize(uSunDir) + v);
       col += uSpec * pow(max(dot(n, hv), 0.0), 120.0) * 0.8;
-      // shoreline foam: a solid band plus lines rolling in towards the beach
-      float band = 1.0 - smoothstep(0.0, 0.18, d + sin(vWorld.x * 3.0 + uTime * 1.3) * 0.03);
-      float roll = smoothstep(0.82, 1.0, sin(d * 16.0 - uTime * 2.0) * 0.5 + 0.5) * (1.0 - smoothstep(0.15, 0.7, d));
-      float foam = clamp(band * 0.9 + roll * 0.55, 0.0, 1.0);
+      // shoreline foam. Cliffs: a thin line that breathes. Beaches: surf that washes up and back,
+      // with breaking lines rolling in towards the sand.
+      float wob = sin(vWorld.x * 3.0 + vWorld.z * 1.7 + uTime * 1.3) * 0.03;
+      float swash = 0.5 + 0.5 * sin(uTime * 0.9 + vWorld.x * 0.35 - vWorld.z * 0.25);
+      float width = mix(0.085 + 0.03 * sin(uTime * 1.7 + vWorld.z * 2.0), 0.1 + 0.15 * swash, beach);
+      float band = 1.0 - smoothstep(width * 0.45, width, d + wob);
+      float lines = smoothstep(0.88, 1.0, sin(d * mix(16.0, 10.0, beach) + uTime * mix(2.0, 1.5, beach)) * 0.5 + 0.5);
+      float roll = lines * (1.0 - smoothstep(0.1, mix(0.5, 1.4, beach), d)) * mix(0.3, 0.65, beach);
+      float foam = clamp(band * mix(0.92, 0.78, beach) + roll * 0.6, 0.0, 1.0);
       col = mix(col, uFoam, foam);
       float alpha = mix(0.5, 1.0, smoothstep(0.0, 2.6, d));
       alpha = max(alpha, foam * 0.95);
@@ -135,6 +169,8 @@ window.R3 = window.R3 || {};
           uniforms.uFogColor.value.setHex(th.fog); uniforms.uFogNear.value = th.fogNear; uniforms.uFogFar.value = th.fogFar;
         },
         update(t) { uniforms.uTime.value = t; },
+        setFog(near, far) { uniforms.uFogNear.value = near; uniforms.uFogFar.value = far; },
+        setSun(d) { uniforms.uSunDir.value.copy(d); },
         dispose() { geo.dispose(); mat.dispose(); tex.dispose(); }
       };
       api.setTheme(theme);

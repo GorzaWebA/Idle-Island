@@ -18,6 +18,10 @@
 */
 window.R3 = window.R3 || {};
 (function (R3) {
+  const MIST = 16;             // mist banks drifting round a Fogbound island
+  const SUN_SWING = 0.32, SUN_PERIOD = 720;    // the sun's slow drift: radians either way, seconds
+  const _sun = new THREE.Vector3();
+
   const view = {
     kind: '3d', canvas: null, stage: null,
     renderer: null, scene: null, camera: null, rig: null, picker: null,
@@ -62,14 +66,22 @@ window.R3 = window.R3 || {};
       this.rig = new R3.CameraRig(this.camera, canvas);
       this.picker = new R3.Picker(this.camera, canvas);
       this.rig.groundPick = (mx, my) => this.picker.ground(mx, my);
-      this.puffs = new R3.Puffs(this.scene, this.mobile ? 240 : 400);
+      // effects: smoke/dust/flames, additive sparks, firelight on the ground, glowing lights, rings
+      this.puffs = new R3.Particles(this.scene, this.mobile ? 360 : 640, { scale: 1.4 });
+      this.sparks = new R3.Particles(this.scene, this.mobile ? 120 : 220, { glow: true, scale: 1.6, order: 5 });
+      this.glow = new R3.Glows(this.scene, 48, true, 2);
+      this.lights = new R3.Glows(this.scene, 160, false, 5);
+      this.foam = new R3.Particles(this.scene, this.mobile ? 120 : 200, { flat: true, scale: 1.5, order: 2 });
+      this.mist = new R3.Particles(this.scene, MIST + 4, { flat: true, fadeIn: 6, untinted: true, spin: 0.06, order: 6 });
       this.rings = new R3.Rings(this.scene, 48);
-      const fx = { puffs: this.puffs, rings: this.rings };
+      this.ripples = new R3.Rings(this.scene, this.mobile ? 64 : 96, 0.93);
+      const fx = this.fx = { puffs: this.puffs, sparks: this.sparks, foam: this.foam, mist: this.mist, glow: this.glow, lights: this.lights, rings: this.rings, ripples: this.ripples };
       this.propMats = R3.Props.materials(this.wind);
-      this.buildings = new R3.Buildings(this.scene, this.puffs);
+      this.buildings = new R3.Buildings(this.scene, fx);
       this.picker.extraTop = (x, z) => this.buildings.heightOn(x, z);
       this.units = new R3.Units(this.scene, fx);
       this.units.onBossHit = a => this.rig.shake(a);
+      this.units.boats.onBoss = (x, z) => { this.bossNudges = (this.bossNudges || 0) + (this.rig.nudge(x, z) ? 1 : 0); };
       this.missiles = new R3.Missiles(this.scene, fx);
       this.overlay = new R3.Overlay(this.scene, this.buildings, this.picker);
       this.occupied = tile => this.buildings.byTile.has(tile);
@@ -90,21 +102,27 @@ window.R3 = window.R3 || {};
       if (this.terrain) { this.scene.remove(this.terrain.group); this.terrain.dispose(); }
       if (this.sea) { this.scene.remove(this.sea.mesh); this.sea.dispose(); }
       if (this.props) { this.scene.remove(this.props.group); this.props.dispose(); }
-      this.buildings.clear(); this.units.clear(); this.puffs.clear(); this.rings.clear();
+      this.buildings.clear(); this.units.clear();
+      for (const k in this.fx) this.fx[k].clear();
+      this.map = MAP;
       this.terrain = R3.Terrain.build();
-      this.sea = R3.Sea.build(THEME3D.current());
+      this.sea = R3.Sea.build(this.theme());
       this.props = R3.Props.build(this.propMats);
       this.scene.add(this.terrain.group, this.sea.mesh, this.props.group);
       const b = R3.Terrain.landBounds();
       this.rig.setBounds(b);
-      this.fitSun(b);
-      this.map = MAP;
+      this.applyTheme();
       this.rig.recentre(true);
     },
 
-    // Point the sun at the island and fit its shadow box tightly around it.
-    fitSun(b) {
-      const th = THEME3D.current(), d = new THREE.Vector3(th.sunDir[0], th.sunDir[1], th.sunDir[2]).normalize();
+    // The light/dark settings for this island (Fogbound has its own sky).
+    theme() { return THEME3D.forIsland(MAP ? MAP.trait : null); },
+
+    /* Point the sun at the island and fit its shadow box tightly around it. The sun swings
+       slowly round over the minutes (angle in radians around the vertical). */
+    fitSun(b, angle) {
+      const th = this.theme(), d = _sun.set(th.sunDir[0], th.sunDir[1], th.sunDir[2]).normalize().applyAxisAngle(THREE.Object3D.DEFAULT_UP, angle || 0);
+      if (this.sea) this.sea.setSun(d);
       const c = new THREE.Vector3(b.cx, 0.3, b.cz);
       this.sun.target.position.copy(c);
       this.sun.position.copy(c).addScaledVector(d, 30);
@@ -116,13 +134,37 @@ window.R3 = window.R3 || {};
     },
 
     applyTheme() {
-      const th = THEME3D.current();
+      const th = this.theme();
       this.scene.background = new THREE.Color(th.sky);
+      this.foggy = !!th.foggy;
       this.scene.fog.color.setHex(th.fog); this.scene.fog.near = th.fogNear; this.scene.fog.far = th.fogFar;
       this.hemi.color.setHex(th.hemiSky); this.hemi.groundColor.setHex(th.hemiGround); this.hemi.intensity = th.hemiIntensity;
       this.sun.color.setHex(th.sun); this.sun.intensity = th.sunIntensity;
       if (this.sea) this.sea.setTheme(th);
-      if (this.terrain) this.fitSun(R3.Terrain.landBounds());
+      for (const k of ['puffs', 'sparks', 'foam', 'mist', 'glow', 'lights']) this.fx[k].setTheme(th);
+      this.buildings.dusk = th.name === 'dark';
+      this.mistCol = th.mist || th.fog;
+      this.mist.clear();
+      if (this.terrain) { this.bounds = R3.Terrain.landBounds(); this.fitSun(this.bounds, this.sunAngle()); }
+    },
+    sunAngle() { return Math.sin(this.time * Math.PI * 2 / SUN_PERIOD) * SUN_SWING; },
+
+    /* Fogbound: fog that closes in around the camera (so zooming in clears the view a little)
+       and banks of mist drifting over the water. */
+    weather(dt) {
+      if (!this.foggy) return;
+      const d = this.rig.dist, near = d * 0.75 + 2, far = d * 1.9 + 9;
+      this.scene.fog.near = near; this.scene.fog.far = far;
+      this.sea.setFog(near, far);
+      for (const k of ['puffs', 'sparks', 'foam', 'glow', 'lights']) this.fx[k].setFog(near, far);
+      if (this.mist.n < MIST && (this.mistT = (this.mistT || 0) - dt) <= 0) {
+        this.mistT = 0.4;
+        const b = this.bounds, rx = (b.x1 - b.x0) / 2 + 3, rz = (b.z1 - b.z0) / 2 + 3;
+        const a = Math.random() * Math.PI * 2, r = 0.8 + Math.random() * 0.7;
+        const s = 4 + Math.random() * 5;
+        this.mist.spawn(b.cx + Math.cos(a) * rx * r, 0.22 + Math.random() * 0.24, b.cz + Math.sin(a) * rz * r, 0.12 + Math.random() * 0.1, 0, 0.04 + Math.random() * 0.06,
+          35 + Math.random() * 25, s, s * 1.3, this.mistCol, 0.3 + Math.random() * 0.15);
+      }
     },
 
     resize() {
@@ -147,14 +189,18 @@ window.R3 = window.R3 || {};
       this.wind.value = this.time;
       this.rig.update(dt);
       this.sea.update(this.time);
+      if ((this.sunT = (this.sunT || 0) - dt) <= 0) { this.sunT = 0.5; this.fitSun(this.bounds, this.sunAngle()); }
+      this.weather(dt);
+      this.glow.begin(); this.lights.begin();
+      this.buildings.eye.copy(this.camera.position);
       this.buildings.sync(dt);
       let key = G.buildings.length;
       for (const b of G.buildings) key = (key * 31 + b.y * MAP_W + b.x + 1) | 0;
       this.props.update(key, this.occupied);
       this.units.sync(alpha === undefined ? 1 : alpha, dt);
       this.missiles.sync(alpha === undefined ? 1 : alpha, dt);
-      this.puffs.update(dt);
-      this.rings.update(dt);
+      this.puffs.update(dt); this.sparks.update(dt); this.foam.update(dt); this.mist.update(dt); this.rings.update(dt); this.ripples.update(dt);
+      this.glow.end(); this.lights.end();
       this.overlay.update();
       this.renderer.render(this.scene, this.camera);
     },

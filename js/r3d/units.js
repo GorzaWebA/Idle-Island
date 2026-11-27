@@ -10,6 +10,7 @@
 window.R3 = window.R3 || {};
 (function (R3) {
   const T = THEME3D.base, UM = R3.UnitModels, K = UM.KINDS, SK = UM.SKEL;
+  const FOAM = 0xf4efdf;
   const _root = new THREE.Matrix4(), _loc = new THREE.Matrix4(), _part = new THREE.Matrix4(), _arm = new THREE.Matrix4(), _w = new THREE.Matrix4();
   const _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3(), _s = new THREE.Vector3(), _c = new THREE.Color(), _c2 = new THREE.Color();
   const WHITE = new THREE.Color(1, 1, 1);
@@ -109,6 +110,10 @@ window.R3 = window.R3 || {};
         const ground = R3.Terrain.heightAt(x, z);
         st.gy += (ground - st.gy) * Math.min(1, dt * 14);
         st.x = x; st.z = z;
+        if (ground < -0.02 && !this.initial && (st.wade = (st.wade || 0) - dt * (0.4 + st.move)) <= 0) {
+          st.wade = 0.45;     // wading ashore: rings spread from the legs
+          this.fx.ripples.spawn(x, 0.02, z, 0.04, 0.24, 0.8, 0x5d7a80);
+        }
         this.drawFigure(u, st, Math.max(st.gy, -0.06) + hopY, 0, 1);
       }
 
@@ -121,7 +126,7 @@ window.R3 = window.R3 || {};
           const drowned = !isLandAt(u.x, u.y);
           if (u.hp > 0 && !drowned) { this.state.delete(id); this.prev.delete(id); continue; }   // removed, not killed
           st.dead = drowned ? 'drown' : 'fall'; st.dt = 0;
-          if (drowned) { this.fx.rings.spawn(st.x, 0.02, st.z, 0.05, 0.35, 0.7, 0xbfe6f0); for (let k = 0; k < 6; k++) this.fx.puffs.spawn(st.x, 0.02, st.z, (Math.random() - 0.5) * 0.4, 0.5 + Math.random() * 0.3, (Math.random() - 0.5) * 0.4, 0.5, 0.03, 0.06, 0xdff3f7); }
+          if (drowned) R3.splash(this.fx, st.x, st.z, 1);
           if (u.kind === 'warlord' && this.onBossHit) this.onBossHit(0.12);
         }
         st.dt += dt;
@@ -251,6 +256,7 @@ window.R3 = window.R3 || {};
       this.hulls = [new R3.Batch(group, UM.boat(false), mat, 8, { shadow: true }), new R3.Batch(group, UM.boat(true), mat, 2, { shadow: true })];
       this.oars = new R3.Batch(group, UM.oar(), mat, 64);
       this.prev = new Map(); this.state = new Map(); this.frame = 0;
+      this.onBoss = null;       // (x, z) when the Warlord's boat first comes into view
     }
     snapshot() {
       for (const b of RT.boats) {
@@ -268,7 +274,11 @@ window.R3 = window.R3 || {};
         const x = p ? p.x + (b.x - p.x) * alpha : b.x, z = p ? p.y + (b.y - p.y) * alpha : b.y;
         let st = this.state.get(b.id);
         const travel = b.state === 'leave' ? Math.atan2(-b.dx, -b.dy) : Math.atan2(b.dx, b.dy);
-        if (!st) { st = { h: travel, x, z, wake: 0, frame: f }; this.state.set(b.id, st); }
+        if (!st) {
+          st = { h: travel, x, z, wake: 0, ripple: 0, spray: 0, last: b.state, frame: f };
+          this.state.set(b.id, st);
+          if (b.boss && !initial && b.state === 'sail' && this.onBoss) this.onBoss(x, z);
+        }
         // turn smoothly (a leaving boat swings round)
         let a = travel - st.h; a = Math.atan2(Math.sin(a), Math.cos(a));
         st.h += Math.sign(a) * Math.min(Math.abs(a), dt * 1.4);
@@ -289,12 +299,35 @@ window.R3 = window.R3 || {};
           _part.multiplyMatrices(_root, local(ox, oy, oz, 0, (side < 0 ? Math.PI : 0) + sweep * side, dip, 'YZX'));
           this.oars.add(_part, WHITE);
         }
-        // wake behind a moving boat
-        if (speed > 0.25 && !initial && (st.wake -= dt) <= 0) {
-          st.wake = 0.09;
-          const sx = x - Math.sin(st.h) * 0.6 * sc, sz = z - Math.cos(st.h) * 0.6 * sc;
-          this.fx.puffs.spawn(sx + (Math.random() - 0.5) * 0.1, 0.03, sz + (Math.random() - 0.5) * 0.1, 0, 0.02, 0, 1.3, 0.05, 0.16, T.foam || 0xf4efdf);
+        // wake behind a moving boat: foam at the stern, spreading ripples, spray off the bow
+        const fx = this.fx, hx = Math.sin(st.h), hz = Math.cos(st.h);
+        if (speed > 0.25 && !initial) {
+          if ((st.wake -= dt) <= 0) {
+            st.wake = 0.09;
+            const sx = x - hx * 0.6 * sc, sz = z - hz * 0.6 * sc;
+            fx.foam.spawn(sx + (Math.random() - 0.5) * 0.1, 0.035, sz + (Math.random() - 0.5) * 0.1, -hx * 0.05, 0, -hz * 0.05, 1.8, 0.08, 0.3, FOAM, 0.6);
+          }
+          if ((st.ripple -= dt) <= 0) {
+            st.ripple = 0.32;
+            fx.ripples.spawn(x - hx * 0.45 * sc, 0.025, z - hz * 0.45 * sc, 0.15 * sc, 0.7 * sc, 1.6, 0x3c5257);
+          }
+          if ((st.spray -= dt) <= 0) {
+            st.spray = 0.12;
+            const side = Math.random() < 0.5 ? -1 : 1, bx = x + hx * 0.55 * sc + hz * side * 0.08, bz = z + hz * 0.55 * sc - hx * side * 0.08;
+            fx.puffs.spawn(bx, 0.04, bz, hz * side * 0.35 + hx * 0.2, 0.45 + Math.random() * 0.25, -hx * side * 0.35 + hz * 0.2, 0.45, 0.035, 0.07, FOAM, 0.8, null, 2.6);
+          }
         }
+        // running aground: a burst of spray and a ring of foam at the bow
+        if (st.last === 'sail' && b.state === 'unload' && !initial) {
+          const bx = x + hx * 0.5 * sc, bz = z + hz * 0.5 * sc;
+          for (let k = 0; k < 12; k++) {
+            const a = st.h + (Math.random() - 0.5) * 2.4, v = 0.4 + Math.random() * 0.5;
+            fx.puffs.spawn(bx, 0.05, bz, Math.sin(a) * v, 0.6 + Math.random() * 0.6, Math.cos(a) * v, 0.6, 0.04, 0.08, FOAM, 0.9, null, 3);
+          }
+          fx.ripples.spawn(bx, 0.03, bz, 0.1, 0.7 * sc, 1.0, 0x6d8f96);
+          for (let k = 0; k < 5; k++) fx.foam.spawn(bx + (Math.random() - 0.5) * 0.4, 0.035, bz + (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.2, 0, (Math.random() - 0.5) * 0.2, 1.6, 0.1, 0.35, FOAM, 0.7);
+        }
+        st.last = b.state;
       }
       this.hulls[0].end(); this.hulls[1].end(); this.oars.end();
       if (f % 60 === 0) for (const [id, st] of this.state) if (st.frame !== f) { this.state.delete(id); this.prev.delete(id); }
@@ -303,5 +336,15 @@ window.R3 = window.R3 || {};
     dispose() { for (const b of [this.hulls[0], this.hulls[1], this.oars]) { b.geo.dispose(); b.dispose(); } }
   }
 
+  // Something falls into the sea: a ring, a crown of droplets and a patch of foam.
+  R3.splash = function (fx, x, z, size) {
+    fx.ripples.spawn(x, 0.02, z, 0.05 * size, 0.42 * size, 0.9, 0x9fc3cb);
+    fx.ripples.spawn(x, 0.02, z, 0.02, 0.26 * size, 1.2, 0x5d7a80);
+    for (let k = 0; k < 8; k++) {
+      const a = k / 8 * Math.PI * 2 + Math.random() * 0.5, v = (0.25 + Math.random() * 0.25) * size;
+      fx.puffs.spawn(x, 0.03, z, Math.cos(a) * v, (0.7 + Math.random() * 0.5) * size, Math.sin(a) * v, 0.6, 0.035 * size, 0.06 * size, FOAM, 0.9, null, 3.2);
+    }
+    fx.foam.spawn(x, 0.035, z, 0, 0, 0, 1.6, 0.1 * size, 0.32 * size, FOAM, 0.7);
+  };
   R3.Units = Units;
 })(window.R3);

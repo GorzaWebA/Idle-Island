@@ -3,7 +3,8 @@
    with their neighbours. Models are built once per variant and cached.
    Local space: origin at the tile centre, y = 0 on the ground, the front faces +z.
    Each model also lists attachment points for animated extras:
-     smoke: chimneys, flags: [x, y, z, size], saws: sawing points. */
+     smoke: chimneys, flags: [x, y, z, size], saws: sawing points,
+     lights: doors and windows that glow at dusk [x, y, z, size, strength, nx, nz]. */
 window.R3 = window.R3 || {};
 (function (R3) {
   const T = THEME3D.base;
@@ -26,10 +27,23 @@ window.R3 = window.R3 || {};
     mb.setMatrix(m).box(-len / 2, -w / 2, -t / 2, len / 2, w / 2, t / 2, col).setMatrix(null);
   }
   // Door / window on the +z face at z (or on another face via `face`).
-  function door(mb, x, z, w, h, col) { mb.box(x - w / 2, 0, z, x + w / 2, h, z + 0.012, col || T.char); }
+  // Doors and windows also record where light shows through at dusk:
+  // [x, y, z, size, strength, normal x, normal z].
+  let LIGHTS = null;
+  function light(mb, x, y, z, size, k) {
+    if (!LIGHTS) return;
+    const v = new THREE.Vector3(x, y, z), n = new THREE.Vector3(0, 0, 1);
+    if (mb.m) { v.applyMatrix4(mb.m); n.transformDirection(mb.m); }
+    LIGHTS.push([v.x, v.y, v.z, size, k, n.x, n.z]);
+  }
+  function door(mb, x, z, w, h, col) {
+    mb.box(x - w / 2, 0, z, x + w / 2, h, z + 0.012, col || T.char);
+    light(mb, x, h * 0.45, z + 0.04, w * 1.6, 0.55);
+  }
   function windowZ(mb, x, y, z, w, h) {
     mb.box(x - w / 2 - 0.012, y - 0.012, z, x + w / 2 + 0.012, y + h + 0.012, z + 0.008, T.timber);
     mb.box(x - w / 2, y, z + 0.004, x + w / 2, y + h, z + 0.013, T.windowDark);
+    light(mb, x, y + h / 2, z + 0.03, Math.max(w, h) * 2.6, 1);
   }
   function chimney(mb, x, z, y0, y1, s) {
     mb.cbox(x, y0, z, s, y1 - y0, s, { top: T.char, side: T.stoneDark });
@@ -342,19 +356,22 @@ window.R3 = window.R3 || {};
     if (type === 'hall') return lvl < 3 ? 1 : lvl < 5 ? 2 : 3;
     return lvl < 3 ? 1 : lvl < 6 ? 2 : 3;
   }
-  // { key, geo, smoke, flags, saws, height }
+  // { key, geo, smoke, flags, saws, lights, height }
   function get(type, tier, ruined, mask) {
     const key = ruined ? 'ruin:' + type + (type === 'palisade' ? ':' + (mask || 0) : '') : type + ':' + tier + (type === 'palisade' ? ':' + (mask || 0) : '');
     let m = cache.get(key);
     if (m) return m;
     const mb = new R3.MeshBuilder();
     let meta;
+    LIGHTS = [];
     if (ruined) meta = ruin(mb, type, mask);
     else if (type === 'palisade') meta = palisade(mb, tier, mask);
     else meta = BUILD[type](mb, tier);
+    const lights = ruined ? [] : LIGHTS;
+    LIGHTS = null;
     const geo = mb.geometry();
     geo.computeBoundingBox();
-    m = { key, geo, smoke: (meta && meta.smoke) || [], flags: (meta && meta.flags) || [], saws: (meta && meta.saws) || [], height: (meta && meta.height) || geo.boundingBox.max.y };
+    m = { key, geo, smoke: (meta && meta.smoke) || [], flags: (meta && meta.flags) || [], saws: (meta && meta.saws) || [], lights, height: (meta && meta.height) || geo.boundingBox.max.y };
     cache.set(key, m);
     return m;
   }

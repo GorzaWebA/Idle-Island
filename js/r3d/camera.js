@@ -19,13 +19,25 @@ window.R3 = window.R3 || {};
       this.pointers = new Map(); this.gesture = null; this.listeners = [];
       this.groundPick = null;     // (mx, my) -> Vector3 on the ground, set by the renderer
       this._v = new THREE.Vector3(); this._w = new THREE.Vector3();
-      this.shakeAmp = 0;
+      this.shakeAmp = 0; this.slowT = 0;
       this.reducedMotion = false;
       try { const mq = window.matchMedia('(prefers-reduced-motion: reduce)'); this.reducedMotion = mq.matches; mq.addEventListener('change', e => { this.reducedMotion = e.matches; }); } catch (e) { /* old browser */ }
     }
 
     // A short camera shake (boss blows). Skipped when the system asks for reduced motion.
     shake(amount) { if (!this.reducedMotion) this.shakeAmp = Math.max(this.shakeAmp, amount); }
+
+    /* Lean the view gently towards a point of interest (the Warlord's longboat): pan part of the
+       way and make sure the camera isn't zoomed in tight. Skipped while the player is moving the
+       camera, has just moved it, or asked for reduced motion. Returns whether it moved. */
+    nudge(x, z) {
+      if (this.reducedMotion || this.pointers.size || this.keys.size || this.idle < 2) return false;
+      this.goal.x += (x - this.goal.x) * 0.35; this.goal.z += (z - this.goal.z) * 0.35;
+      this.gDist = Math.max(this.gDist, this.fitDist * 0.9);
+      this.clampGoals();
+      this.slowT = 2.5;          // ease there slowly
+      return true;
+    }
 
     setBounds(b) { this.bounds = b; }
 
@@ -55,7 +67,7 @@ window.R3 = window.R3 || {};
       this.computeFit();
       this.goal.set(b.cx, 0.3, b.cz);
       this.gYaw = Math.round(this.gYaw / (Math.PI * 2)) * Math.PI * 2;  // nearest "north up"
-      this.gPitch = PITCH_DEFAULT; this.gDist = this.fitDist;
+      this.gPitch = PITCH_DEFAULT; this.gDist = this.fitDist; this.slowT = 0;
       if (immediate) { this.target.copy(this.goal); this.yaw = this.gYaw; this.pitch = this.gPitch; this.dist = this.gDist; this.apply(); }
     }
 
@@ -124,7 +136,9 @@ window.R3 = window.R3 || {};
       }
       this.idle += dt;
       if (this.autoRotate && this.idle > IDLE_ROTATE_AFTER && !this.pointers.size) this.gYaw += dt * 0.06;
-      const a = 1 - Math.exp(-dt * 10);
+      if (this.idle < 0.05) this.slowT = 0;          // any input takes over at once
+      const a = 1 - Math.exp(-dt * (this.slowT > 0 ? 1.6 : 10));
+      if (this.slowT > 0) this.slowT -= dt;
       this.target.lerp(this.goal, a);
       this.yaw += (this.gYaw - this.yaw) * a;
       this.pitch += (this.gPitch - this.pitch) * a;

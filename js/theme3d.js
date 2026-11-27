@@ -46,16 +46,59 @@ const THEME3D = (function () {
     sky: 0xc4dbe0, fog: 0xc4dbe0, fogNear: 30, fogFar: 85,
     sun: 0xfff0d2, sunIntensity: 2.6, sunDir: [-0.55, 1.0, 0.42],
     hemiSky: 0xdcefff, hemiGround: 0x56664a, hemiIntensity: 1.15,
-    seaDeep: 0x1c5468, seaShallow: 0x49a3aa, foam: 0xf4efdf, seaSpec: 0xfff6e0
+    seaDeep: 0x1c5468, seaShallow: 0x49a3aa, foam: 0xf4efdf, seaSpec: 0xfff6e0,
+    smokeTint: 0xffffff
   };
 
   const dark = {
     name: 'dark',
     sky: 0x1e2c3a, fog: 0x223443, fogNear: 26, fogFar: 72,
-    sun: 0xffc390, sunIntensity: 2.3, sunDir: [0.7, 0.75, 0.35],
-    hemiSky: 0x7c8fbc, hemiGround: 0x34352c, hemiIntensity: 1.3,
-    seaDeep: 0x123a4a, seaShallow: 0x2f7c86, foam: 0xd9d6cc, seaSpec: 0xffd2a0
+    sun: 0xffb27a, sunIntensity: 2.0, sunDir: [0.75, 0.55, 0.35],
+    hemiSky: 0x7085b6, hemiGround: 0x2f302a, hemiIntensity: 1.12,
+    seaDeep: 0x123a4a, seaShallow: 0x2f7c86, foam: 0xd9d6cc, seaSpec: 0xffd2a0,
+    smokeTint: 0x8f97a6
   };
+
+  /* Island traits change the look of an island, never its rules:
+       palette: colour overrides for terrain and props
+       props:   multipliers and extras for decorations
+       fog:     Fogbound islands close the fog in around the camera and grow mist banks */
+  const traits = {
+    fertile: {
+      palette: { grass: 0x8cc256, grassDark: 0x66a03f, grassLight: 0xaed46e, tuft: 0x74ad45, tuftLight: 0xa6d064 },
+      props: { flowers: 2.6, tufts: 1.4 }
+    },
+    timberland: {
+      palette: { grass: 0x6f9f4c, grassDark: 0x4c7b37, grassLight: 0x87b25a, tuft: 0x5b8a3c, tuftLight: 0x7aa64d },
+      props: { tufts: 1.5, trees: 1.3, moss: true }
+    },
+    highlands: {
+      palette: { high: 0xa2a374, highDark: 0x7d8058 },
+      props: { highRocks: 1.9, heather: true }
+    },
+    shores: { palette: {}, props: { driftwood: 0.45 } },
+    rocky: { palette: {}, props: { stacks: 0.38, beachRocks: true } },
+    fog: { palette: {}, props: {}, fog: true }
+  };
+  const merged = new Map();
+  // Base colours with an island's overrides on top (cached per trait).
+  function palette(trait) {
+    let p = merged.get(trait);
+    if (!p) { p = Object.assign({}, base, (traits[trait] || {}).palette || {}); merged.set(trait, p); }
+    return p;
+  }
+  function trait(id) { return traits[id] || { palette: {}, props: {} }; }
+
+  const fogSky = {
+    light: { sky: 0xc8d2d4, fog: 0xc8d2d4, mist: 0xe9eeee },
+    dark: { sky: 0x253442, fog: 0x2b3b49, mist: 0x50627a }
+  };
+  // Light/dark settings for an island (Fogbound swaps in a greyer sky).
+  function forIsland(id) {
+    const th = current();
+    if (!trait(id).fog) return th;
+    return Object.assign({}, th, fogSky[th.name], { foggy: true });
+  }
 
   function isDark() {
     const t = document.documentElement.getAttribute('data-theme');
@@ -64,5 +107,6 @@ const THEME3D = (function () {
     try { return window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) { return false; }
   }
 
-  return { base, light, dark, isDark, current() { return isDark() ? dark : light; } };
+  function current() { return isDark() ? dark : light; }
+  return { base, light, dark, isDark, current, palette, trait, forIsland };
 })();
