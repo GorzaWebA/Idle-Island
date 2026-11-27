@@ -1,10 +1,12 @@
 'use strict';
-/* Props: trees, rocks, sea stacks, grass tufts and flowers. Purely decorative.
-   Everything is instanced (five draw calls in all). Trees and tufts sway in a shared wind;
-   decorations on a tile hide when a building stands there. */
+/* Props: trees, rocks, sea stacks, grass tufts, flowers and driftwood. Purely decorative.
+   Everything is instanced (one draw call per kind). Trees and tufts sway in a shared wind;
+   decorations on a tile hide when a building stands there.
+   Island traits change the mix: Fertile has more flowers, Timberland moss and denser woods,
+   Highlands heather and boulders, Many Shores driftwood, Rocky Coast more sea stacks. */
 window.R3 = window.R3 || {};
 (function (R3) {
-  const T = THEME3D.base;
+  let T = THEME3D.base;       // the island's palette, set on build
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _e = new THREE.Euler(), _c = new THREE.Color();
   const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 
@@ -58,6 +60,14 @@ window.R3 = window.R3 || {};
     }
     return mb.geometry();
   }
+  function logGeometry() {
+    const mb = new R3.MeshBuilder();
+    mb.setMatrix(new THREE.Matrix4().makeRotationZ(-Math.PI / 2).setPosition(-0.5, 0, 0))
+      .cyl(0, 0, 0, 1, 1, 0.85, 6, { side: 0xffffff, top: 0xd8ccb4 }, 'both').setMatrix(null);
+    mb.setMatrix(new THREE.Matrix4().makeRotationZ(-Math.PI / 2 + 0.9).setPosition(0.15, 0.3, 0))
+      .cyl(0, 0, 0, 0.35, 0.45, 0.15, 4, 0xffffff, false).setMatrix(null);
+    return mb.geometry();
+  }
   function flowerGeometry() {
     const mb = new R3.MeshBuilder();
     mb.cyl(0, 0, 0, 0.6, 0.35, 0.6, 5, 0xffffff, true);
@@ -85,10 +95,12 @@ window.R3 = window.R3 || {};
       this.mesh.instanceMatrix.needsUpdate = true;
       if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
       this.mesh.computeBoundingSphere();
+      this.mesh.visible = items.length > 0;
     }
     // Hide instances on tiles where occupied(tileIndex) is true.
     occupy(occupied) {
       if (!this.items.length) return;
+    // (an empty set draws nothing)
       this.items.forEach((it, i) => {
         if (occupied(it.tile)) this.mesh.setMatrixAt(i, ZERO);
         else { _m.fromArray(this.mats, i * 16); this.mesh.setMatrixAt(i, _m); }
@@ -103,10 +115,13 @@ window.R3 = window.R3 || {};
     return { sway: swayMaterial(time, 0.12), swayTuft: swayMaterial(time, 0.5), still: R3.flatMaterial() };
   }
 
+  const HEATHER = [0x9a5fa8, 0xb57bbf, 0x7f4f93, 0xc98fc4];
   function build(mats) {
+    T = THEME3D.palette(MAP.trait);
+    const tr = THEME3D.trait(MAP.trait).props;
     const seedMix = (MAP.seed % 1000) / 7.3;
     const h = (x, k, z) => R3.hash3(x + seedMix, k, z);
-    const pines = [], rounds = [], rocks = [], tufts = [], flowers = [];
+    const pines = [], rounds = [], rocks = [], tufts = [], flowers = [], logs = [];
     const H = R3.Terrain.heightAt;
     const spot = (tx, tz, k, rMin, rMax) => {
       const a = h(tx, k, tz) * Math.PI * 2, r = rMin + h(tz, k + 50, tx) * (rMax - rMin);
@@ -120,14 +135,14 @@ window.R3 = window.R3 || {};
         // the odd sea stack off a cliff coast (never near a beach or landing)
         let cliff = false, sand = false;
         for (const [dx, dz] of DIR8) { const n = tileType(tx + dx, tz + dz); if (n === T_GRASS || n === T_HIGH) cliff = true; if (n === T_SAND) sand = true; }
-        if (cliff && !sand && !landing.has(tile) && h(tx, 1, tz) < 0.1) {
-          const p = spot(tx, tz, 2, 0.05, 0.25), s = 0.16 + h(tx, 3, tz) * 0.14;
+        if (cliff && !sand && !landing.has(tile) && h(tx, 1, tz) < (tr.stacks || 0.1)) {
+          const p = spot(tx, tz, 2, 0.05, 0.25), s = (0.16 + h(tx, 3, tz) * 0.14) * (tr.stacks ? 1.2 : 1);
           rocks.push({ x: p.x, y: -0.25, z: p.z, sx: s, sy: s * 1.5, sz: s * 0.9, ry: h(tx, 4, tz) * 6, rx: 0.2, col: T.rock, tint: 0.9, tile: -1 });
         }
         continue;
       }
       if (hasTree(tx, tz)) {
-        const n = 2 + (h(tx, 7, tz) > 0.55 ? 1 : 0);
+        const n = 2 + (h(tx, 7, tz) > 0.55 ? 1 : 0) + (tr.trees && h(tx, 6, tz) < tr.trees - 1 + 0.3 ? 1 : 0);
         for (let k = 0; k < n; k++) {
           const p = spot(tx, tz, 8 + k * 3, 0.08, 0.34);
           const s = 0.8 + h(p.x, 10, p.z) * 0.45, tint = 0.85 + h(p.x, 12, p.z) * 0.3;
@@ -135,8 +150,16 @@ window.R3 = window.R3 || {};
           (round ? rounds : pines).push({ x: p.x, y: p.y, z: p.z, sx: s, sy: s * (0.9 + (tint - 0.85)), sz: s, ry: h(p.z, 11, p.x) * 6.28, tint, tile });
         }
       }
-      if (t === T_HIGH && h(tx, 20, tz) < 0.45) {
-        const n = 1 + (h(tx, 21, tz) > 0.6 ? 1 : 0);
+      if (tr.moss && hasTree(tx, tz)) {
+        // mossy mounds on the forest floor
+        const n = 1 + (h(tx, 14, tz) > 0.5 ? 1 : 0);
+        for (let k = 0; k < n; k++) {
+          const p = spot(tx, tz, 15 + k, 0.1, 0.4), s = 0.07 + h(p.x, 16, p.z) * 0.06;
+          rocks.push({ x: p.x, y: p.y, z: p.z, sx: s * 1.3, sy: s * 0.35, sz: s, ry: h(p.x, 17, p.z) * 6, col: h(p.x, 18, p.z) > 0.5 ? 0x557f35 : 0x6a9440, tint: 1, tile });
+        }
+      }
+      if (t === T_HIGH && h(tx, 20, tz) < Math.min(0.9, 0.45 * (tr.highRocks || 1))) {
+        const n = 1 + (h(tx, 21, tz) > 0.6 ? 1 : 0) + (tr.highRocks && h(tx, 19, tz) > 0.7 ? 1 : 0);
         for (let k = 0; k < n; k++) {
           const p = spot(tx, tz, 22 + k, 0.28, 0.42), s = 0.06 + h(p.x, 23, p.z) * 0.07;
           rocks.push({ x: p.x, y: p.y + s * 0.2, z: p.z, sx: s, sy: s * 0.7, sz: s * 0.9, ry: h(p.x, 24, p.z) * 6, rx: 0.3, col: h(p.x, 25, p.z) > 0.5 ? T.rock : T.rockLight, tint: 1, tile });
@@ -150,20 +173,31 @@ window.R3 = window.R3 || {};
           const p = spot(tx, tz, 31 + k, 0.1, 0.45), s = 0.025 + h(p.x, 32, p.z) * 0.025;
           rocks.push({ x: p.x, y: p.y, z: p.z, sx: s, sy: s * 0.6, sz: s, ry: h(p.x, 33, p.z) * 6, col: T.pebble, tint: 1, tile });
         }
+        if (tr.beachRocks && h(tx, 34, tz) < 0.35) {
+          const p = spot(tx, tz, 35, 0.15, 0.4), s = 0.07 + h(p.x, 36, p.z) * 0.07;
+          rocks.push({ x: p.x, y: p.y + s * 0.15, z: p.z, sx: s, sy: s * 0.7, sz: s * 0.9, ry: h(p.x, 37, p.z) * 6, rx: 0.25, col: T.rock, tint: 0.95, tile });
+        }
+        // driftwood washed up on the sand (plenty on Many Shores, the odd log elsewhere)
+        if (h(tx, 38, tz) < (tr.driftwood || 0.05)) {
+          const p = spot(tx, tz, 39, 0.05, 0.3), len = 0.22 + h(p.x, 46, p.z) * 0.2, r = 0.018 + h(p.z, 47, p.x) * 0.012;
+          logs.push({ x: p.x, y: p.y + r * 0.6, z: p.z, sx: len, sy: r, sz: r, ry: h(p.x, 48, p.z) * 6.28, rz: (h(p.z, 49, p.x) - 0.5) * 0.15, col: h(p.x, 45, p.z) > 0.5 ? 0xa89a84 : 0x8f7f69, tint: 1, tile });
+        }
       }
       if (t === T_GRASS || t === T_HIGH) {
-        const n = t === T_GRASS ? 3 : 1 + (h(tx, 40, tz) > 0.5 ? 1 : 0);
+        const n = Math.round((t === T_GRASS ? 3 : 1 + (h(tx, 40, tz) > 0.5 ? 1 : 0)) * (tr.tufts || 1));
         for (let k = 0; k < n; k++) {
           const p = spot(tx, tz, 41 + k * 2, 0.18, 0.46), s = 0.75 + h(p.x, 42, p.z) * 0.55;
           tufts.push({ x: p.x, y: p.y, z: p.z, sx: s, sy: s, sz: s, ry: h(p.z, 43, p.x) * 6, col: h(p.x, 44, p.z) > 0.5 ? T.tuft : T.tuftLight, tint: t === T_HIGH ? 0.85 : 1, tile });
         }
       }
-      if (t === T_GRASS && !hasTree(tx, tz) && h(tx, 50, tz) < 0.3) {
-        const n = 2 + Math.floor(h(tx, 51, tz) * 3), col = T.flowers[Math.floor(h(tx, 52, tz) * T.flowers.length)];
-        const c = spot(tx, tz, 53, 0.22, 0.36);
+      const heather = tr.heather && t === T_HIGH;
+      if (((t === T_GRASS && !hasTree(tx, tz)) || heather) && h(tx, 50, tz) < (heather ? 0.6 : Math.min(0.85, 0.3 * (tr.flowers || 1)))) {
+        const pal = heather ? HEATHER : T.flowers;
+        const n = (heather ? 5 : 2) + Math.floor(h(tx, 51, tz) * 3), col = pal[Math.floor(h(tx, 52, tz) * pal.length)];
+        const c = spot(tx, tz, 53, 0.22, 0.36), sz = heather ? 0.05 : 0.028, spread = heather ? 0.26 : 0.14;
         for (let k = 0; k < n; k++) {
-          const x = c.x + (h(tx, 54 + k, tz) - 0.5) * 0.14, z = c.z + (h(tz, 60 + k, tx) - 0.5) * 0.14;
-          flowers.push({ x, y: H(x, z) + 0.012, z, sx: 0.028, sy: 0.028, sz: 0.028, ry: k, col, tint: 1, tile });
+          const x = c.x + (h(tx, 54 + k, tz) - 0.5) * spread, z = c.z + (h(tz, 60 + k, tx) - 0.5) * spread;
+          flowers.push({ x, y: H(x, z) + 0.012, z, sx: sz, sy: sz * (heather ? 0.6 : 1), sz, ry: k, col, tint: 1, tile });
         }
       }
     }
@@ -173,20 +207,21 @@ window.R3 = window.R3 || {};
       rounds: new Scatter(roundTreeGeometry(), sway, rounds, { shadow: true }),
       rocks: new Scatter(rockGeometry(), still, rocks, { shadow: true }),
       tufts: new Scatter(tuftGeometry(), swayTuft, tufts, {}),
-      flowers: new Scatter(flowerGeometry(), still, flowers, {})
+      flowers: new Scatter(flowerGeometry(), still, flowers, {}),
+      logs: new Scatter(logGeometry(), still, logs, { shadow: true })
     };
     const group = new THREE.Group();
     for (const k in sets) group.add(sets[k].mesh);
     let lastKey = -1;
     return {
       group, sets,
-      counts: { trees: pines.length + rounds.length, rocks: rocks.length, tufts: tufts.length, flowers: flowers.length },
+      counts: { trees: pines.length + rounds.length, rocks: rocks.length, tufts: tufts.length, flowers: flowers.length, logs: logs.length },
       triangles() { let n = 0; for (const k in sets) n += sets[k].mesh.geometry.attributes.position.count / 3 * sets[k].mesh.count; return n; },
       // Hide decorations under buildings (only when the set of occupied tiles changes).
       update(occupiedKey, occupied) {
         if (occupiedKey === lastKey) return;
         lastKey = occupiedKey;
-        for (const k of ['rocks', 'tufts', 'flowers']) sets[k].occupy(occupied);
+        for (const k of ['rocks', 'tufts', 'flowers', 'logs']) sets[k].occupy(occupied);
       },
       dispose() { for (const k in sets) sets[k].dispose(); }
     };

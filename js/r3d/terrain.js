@@ -7,7 +7,7 @@ window.R3 = window.R3 || {};
   const SEABED = -1.1, SAND_LO = -0.06, SAND_HI = 0.16, GRASS = 0.36, HIGH = 0.92;
   const ROW = 0.2;            // wall rows (for colour bands and rock jitter)
   const JIT = 0.055;          // horizontal jitter of grid points
-  const T = THEME3D.base;
+  let T = THEME3D.base;       // swapped for the island's palette on build
 
   function flatH(t) { return t === T_GRASS ? GRASS : t === T_HIGH ? HIGH : t === T_SAND ? SAND_HI : SEABED; }
   // A sand grid point dips under the water if any tile touching it is sea.
@@ -140,6 +140,7 @@ window.R3 = window.R3 || {};
     SEABED, GRASS, HIGH, SAND_HI,
     heightAt, tileTop, tileHeight, landBounds,
     build() {
+      T = THEME3D.palette(MAP.trait);
       const group = new THREE.Group();
       const mat = R3.flatMaterial();
       const land = new THREE.Mesh(buildMesh(), mat);
