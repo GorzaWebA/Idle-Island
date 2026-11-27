@@ -196,7 +196,8 @@ rebuild for free after a few seconds. When a cottage falls, the raiders also
 * Click a building to select it, then upgrade or demolish it.
 * Click a squad (on the map or its card) to select it, then click a tile to make it hold there.
 * Zoom with the mouse wheel, a pinch or the **+ −** buttons; drag to pan while zoomed in.
-* Keys: Space pauses, Esc cancels, 1–3 set game speed.
+* Keys: Space pauses, Esc cancels, 1–3 set game speed, F3 shows frame rate and draw calls.
+* The **⚙ Settings** tab holds per-device preferences (section 10, *Settings and quality*).
 
 ### Touch screens
 
@@ -236,7 +237,10 @@ unchanged and still runs headless; the renderer only reads it.
 | `js/r3d/unitmodels.js` | Figures (a body per kind, arms, legs, weapons, shields, banner), the longboat and its oars, arrows, blob shadows, rings |
 | `js/r3d/units.js` | Animated figures and longboats, interpolated between sim steps |
 | `js/r3d/missiles.js` | Arrows along the sim's arcs with streaks, fire arrows, volleys, and reactions to sim effects (hits, bashes, splashes) |
-| `js/r3d/ui3d.js` | Tile highlight, selection outline, placement ghost with its yield label, range ring draped over the terrain |
+| `js/r3d/ui3d.js` | In-world UI: tile highlight, placement ghost with its yield label and the tiles a market or lumber camp would use, range rings draped over the terrain, the selected building's outline and ground ring, rings under a selected squad, its route to a hovered tile, hold flags, and rings where longboats will land |
+| `js/r3d/hud.js` | Screen-space UI: boat badges (clamped to the edge with an arrow when off screen), the selection info chip, health bars (one instanced draw call, fixed pixel size), gold and damage numbers, the performance overlay |
+| `js/settings.js` | Per-device preferences (graphics, motion, theme, overlays, sound), stored apart from the game save |
+| `js/audio.js` | Procedural WebAudio: surf, horn, clinks, arrows, fire, splashes, building, clicks |
 | `js/theme3d.js` | All colours. Light (noon) and dark (dusk) variants change only sky, sun, sea and smoke tint, so a theme switch never rebuilds geometry. Island traits add palette overrides and a Fogbound sky |
 
 World units: 1 tile = 1 unit, X = tile x, Z = tile y, Y up, sea level at 0. Tile footprints are
@@ -356,6 +360,72 @@ at 3 and 6):
   | Many Shores | Driftwood washed up on the beaches |
   | Rocky Coast | More and bigger sea stacks, boulders on the beaches |
   | Fogbound | A grey sky, fog that closes in around the camera (zooming in clears it a little) and banks of mist drifting over the water |
+
+### Interface in 3D
+
+* **Incoming longboats** carry a badge with their raider count (dark and gold for the Warlord).
+  A boat out of view keeps its badge at the edge of the map with an arrow pointing to it, clear of
+  the zoom buttons. A pulsing red ring marks the beach where each boat will come ashore.
+* **Selecting a building** draws a gold outline around the model (the model again, slightly
+  larger, back faces only), a ring on the ground, its range for towers and the Hall, and a chip
+  with its name, level and health or rebuild state.
+* **Selecting a squad** rings each member in the squad's colour, shows a ranged squad's reach, and
+  puts a chip over it with name, class, strength and what it is doing. Hovering a tile then shows
+  the route it would take (the sim's own path search, drawn as marching dashes over the ground and
+  on top of everything) and a flag where it would stand. While it walks, the rest of its route
+  stays visible.
+* **Hold flags**: every squad holding a tile has a pennant in its colour planted there.
+* **Health bars** are constant-size quads over hurt raiders, big raiders, damaged buildings,
+  commanders of squads under strength, and ruins being rebuilt. All of them are one draw call.
+* **Damage numbers** (off by default) come from the renderer watching each unit's health drop.
+  They never touch the sim's own floaters.
+* **The settlers' own longboat** is moored at the dock, oars shipped.
+
+### Settings and quality
+
+Settings live under their own localStorage key (`idle-island-settings-v1`), so the save format
+is unchanged and a save string moved to another device doesn't bring its graphics with it. Missing
+or unknown values fall back to defaults.
+
+| Setting | Choices (default first) |
+| --- | --- |
+| Quality | Auto, Low, Medium, High |
+| Shadows, Sharpness (pixel ratio cap), Effects (particle density) | Auto (follow quality), or a fixed choice that overrides it |
+| Theme | System, Day, Dusk |
+| Motion | System, Reduced, Full. Reduced turns off camera shake and the Warlord nudge |
+| Turn when idle | Off, On (slow orbit after 20 s without input) |
+| Health bars, Damage numbers, Performance overlay | On, Off, Off |
+| Sound, Volume | Off, 60 % |
+
+| Quality | Pixel ratio cap | Shadows | Effects | Grass tufts and flowers |
+| --- | --- | --- | --- | --- |
+| Low | 1 | Off | 45 % | Hidden |
+| Medium | 1.5 (phones 1.25) | 1024², hard edges | 75 % | Shown |
+| High | 2 (phones 1.5) | 2048² soft (phones 1024²) | 100 % | Shown |
+
+**Auto quality** starts at High on desktops and Medium on phones. It skips the first second
+(shaders compiling), then takes the median frame time over 5 seconds. Above 22 ms at High, or
+36 ms at Medium, it steps down one level. Below 17.5 ms it may step up once, but never after
+stepping down. After at most three windows it stops watching, so it can never flicker between
+levels. `?quality=low|medium|high` in the URL fixes the level for one visit (tests use it).
+
+### Sound
+
+All sound is synthesised with WebAudio at runtime, from oscillators and one noise buffer made at
+startup. There are no files. It is off on first load, and switching it on in Settings is the gesture
+browsers require. Like the renderer, it only reads game state:
+
+| Sound | When |
+| --- | --- |
+| Surf | Always while on: filtered noise that swells and falls back |
+| Horn | A battle begins (lower and longer on a Warlord wave) |
+| Clink / thump | Melee hits and raiders hacking at buildings / shield bashes |
+| Whip / thunk | Arrows loosed / a volley lands |
+| Crackle | While anything burns |
+| Splash, knock, click | Someone goes into the sea, something is built, a button is pressed |
+
+Each kind is rate-limited per second, sounds are panned by where they happen on screen, and the
+audio pauses while the tab is hidden.
 
 ### The VIEW interface
 

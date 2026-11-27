@@ -42,6 +42,8 @@
 - 🏗️ **Placement matters.** Lumber camps want forest, markets want cottages around them, towers want high ground, and palisades funnel raiders off the beaches.
 - 💤 **Real idle play.** Income keeps flowing, waves run on their own, and progress continues while you're away (up to 8 hours).
 - 📜 **Prestige.** Reach wave 10, then sail to a fresh island for Renown and spend it on permanent Sagas.
+- 🔊 **Optional sound, made in the browser.** Surf, a horn when the raiders land, clashing steel, arrows and crackling fire, all synthesised on the fly. Off until you switch it on.
+- ⚙️ **Settings that fit your device.** Auto quality picks a level from how smoothly the first seconds run, or choose Low, Medium or High yourself.
 - 📱 **Made for phones too.** The map stays pinned above the panel, pinch to zoom and drag to look around, tap a tile twice to build, and turn the phone sideways for a side-by-side layout. Progress saves in your browser.
 
 ## 🧭 How a run goes
@@ -117,6 +119,8 @@ Commander traits: *Stalwart*, *Fierce*, *Swift*, *Keen-eyed*, *Hardy*, *Lucky*.
 | **Cancel**, <kbd>Esc</kbd> or right-click | Stop placing or deselect |
 | <kbd>Space</kbd> | Pause |
 | <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> | Game speed |
+| <kbd>F3</kbd> | Frame rate and draw calls |
+| **⚙** tab | Settings: quality (Auto, Low, Medium, High), shadows, sharpness, effects, day or dusk, reduced motion, turning when idle, health bars, damage numbers, sound |
 
 ## 🛠️ Run it locally
 
@@ -154,10 +158,12 @@ Choose under **Settings → Pages → Deploy from a branch**:
 | `js/state.js` | Persistent state, derived stats, economy actions, save/load, offline progress |
 | `js/sim.js` | Fixed-step battle simulation: boats, flow-field raider pathing, squad AI, combat |
 | `js/render3d.js` | 3D renderer: scene, lights, shadows, loop hooks, the `VIEW` interface |
-| `js/r3d/*.js` | 3D parts: `builder` (procedural meshes), `terrain`, `sea`, `camera`, `picking`, `models` and `buildings`, `props`, `unitmodels` and `units`, `missiles`, `fx` (particles, fire, foam, glows), `ui3d` |
+| `js/r3d/*.js` | 3D parts: `builder` (procedural meshes), `terrain`, `sea`, `camera`, `picking`, `models` and `buildings`, `props`, `unitmodels` and `units`, `missiles`, `fx` (particles, fire, foam, glows), `ui3d` (selection, paths, flags), `hud` (boat badges, health bars, labels) |
 | `js/theme3d.js` | Every 3D colour, with daylight and dusk variants |
 | `js/render.js` | The classic 2D map, used when WebGL is unavailable or with `?2d` |
-| `js/ui.js` | Header, tabbed panel, map input |
+| `js/settings.js` | Player preferences for this device, stored apart from the save |
+| `js/audio.js` | Procedural WebAudio sound effects and surf |
+| `js/ui.js` | Header, tabbed panel (including Settings), map input |
 | `js/main.js` | Boot, renderer choice, main loop, autosave |
 | `js/vendor/` | three.js r159 (classic build, MIT) |
 | `css/fonts/` | Barlow and Grenze (SIL Open Font License), served locally |
@@ -170,8 +176,8 @@ The game makes no network requests: Three.js and the fonts ship with it, and eve
 ```sh
 node tools/balance.js 60 3     # a greedy bot plays 3 islands for 60 game-minutes each and reports pacing
 node tools/balance.js 45 2 3   # the same, with every Saga at level 3
-node tools/smoke.js            # 3D game in headless Chromium (software WebGL): plays, builds, orbits, zooms, battles, fire and water
-node tools/mobile.js           # touch tests (orbit, pinch, pan, two-tap build) on phones and a tablet
+node tools/smoke.js            # 3D game in headless Chromium (software WebGL): plays, builds, orbits, zooms, battles, fire and water, markers, settings, sound
+node tools/mobile.js           # touch tests (orbit, pinch, pan, two-tap build, Settings) on phones and a tablet
 node tools/screenshots.js      # regenerates the images in assets/ (needs ffmpeg for the GIF)
 node tools/build.js            # bundles everything into dist/idle-island.html
 tools/deploy-pages.sh          # publishes the game to the gh-pages branch

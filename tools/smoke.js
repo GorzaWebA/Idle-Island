@@ -243,7 +243,7 @@ async function tilePoint(page, x, y) {
       return out;
     });
     check('every live unit is drawn with body, arms and legs', r.partsOk, r.maxUnits + ' units at most');
-    check('longboats row in', r.boatsSeen > 0 && r.oars >= 8, r.boatsSeen + ' boats, ' + r.oars + ' oars');
+    check('longboats row in', r.boatsSeen > 0 && r.oars >= 16, r.boatsSeen + ' boats, ' + r.oars + ' oars (8 are the moored boat\'s)');
     check('raiders leap ashore from their boat', r.hop);
     check('arrows fly', r.arrows > 0, r.arrows + ' at once');
     check('the slain fall', r.falls > 0, r.falls + ' falling frames');
@@ -359,6 +359,135 @@ async function tilePoint(page, x, y) {
     check('Fertile islands have more flowers', t.fertile.flowers > t.fog.flowers * 1.5, t.fertile.flowers + ' vs ' + t.fog.flowers);
     check('Fogbound islands close the fog in and grow mist', t.fog.fogNear < 25 && t.fog.mist > 0 && t.fertile.mist === 0, JSON.stringify(t.fog));
     check('Many Shores has driftwood', t.shores.logs > 2, t.shores.logs + ' logs');
+    check('no errors', errors.length === 0, errors.slice(0, 3).join(' | '));
+    await ctx.close();
+  }
+
+  console.log('interface: markers, selection, paths, settings, sound');
+  {
+    const { ctx, page, errors } = await open(browser, { viewport: { width: 1100, height: 700 }, query: '?quality=high' });
+    await page.addScriptTag({ path: path.join(__dirname, 'bot.js') });
+    await page.evaluate(() => {
+      RNG = mulberry32(31); G.paused = true;
+      const classes = ['sword', 'bow', 'pike', 'bow', 'sword', 'pike']; let t = 0, nb = 0;
+      while (t < 6 * 60) { step(STEP); t += STEP; if (t >= nb) { nb = t + 1; botAct(classes); } if (!G.autoAdvance) G.autoAdvance = true; }
+      resetRuntime(); VIEW.units.clear(); VIEW.rig.recentre(true);
+      while (RT.phase === 'countdown' && RT.timer > 6) { VIEW.beforeStep(); step(STEP); }
+      for (let i = 0; i < 10; i++) { VIEW.beforeStep(); step(STEP); VIEW.frame(STEP, 1); }
+    });
+    const u = await page.evaluate(async () => {
+      const r = {}, H = VIEW.hud, O = VIEW.overlay;
+      // boat markers: one per visible incoming boat, with its raider count; arrows at the edge
+      const boats = RT.boats.filter(b => b.state === 'sail' && b.wave === G.wave && !(RT.phase === 'countdown' && RT.timer > b.visibleAt));
+      const shown = H.markers.filter(m => !m.hidden);
+      r.boats = boats.length; r.markers = shown.length;
+      r.counts = shown.map(m => +m.count.textContent).sort().join() === boats.map(b => b.cargo.length).sort().join();
+      const rig = VIEW.rig; rig.goal.set(MAP.hall.x + 0.5, 0.3, MAP.hall.y + 0.5); rig.gDist = rig.minDist; rig.clampGoals(); rig.settle(); VIEW.frame(0.016, 1);
+      r.edge = H.markers.filter(m => !m.hidden && m.classList.contains('edge')).length;
+      r.landing = O.marks.n;
+      r.dock = VIEW.units.boats.hulls[2].n;
+      rig.recentre(true); VIEW.frame(0.016, 1);
+      // select a building: outline, ring and chip
+      const b = G.buildings.find(o => o.type === 'cottage') || G.buildings[0];
+      UI.selB = b.id; VIEW.frame(0.016, 1);
+      r.outline = O.outline.mesh.visible; r.chip = H.chip.hidden ? '' : H.chip.textContent; r.bName = BUILDINGS[b.type].name;
+      UI.selB = null;
+      // select a squad and hover a far tile: member rings, the route and a flag
+      while (RT.phase === 'countdown') { VIEW.beforeStep(); step(STEP); }
+      for (let i = 0; i < 40; i++) { VIEW.beforeStep(); step(STEP); if (i % 4 === 0) VIEW.frame(STEP * 4, 1); }
+      const sq = G.squads.find(q => q.rt && q.rt.members.length) || G.squads[0];
+      UI.selSq = sq.id;
+      let far = null, fd = 0;
+      for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) if (isLandTile(x, y)) { const d = Math.hypot(x - sq.rt.ax, y - sq.rt.ay); if (d > fd) { fd = d; far = { x, y }; } }
+      UI.hover = far; VIEW.frame(0.016, 1);
+      r.members = sq.rt.members.length; r.rings = O.marks.n; r.dashes = O.path.dashes; r.flags = O.poles.n;
+      r.sqChip = H.chip.hidden ? '' : H.chip.textContent; r.sqName = sq.name;
+      UI.hover = null; UI.selSq = null;
+      // a squad told to hold gets a flag
+      orderHold(sq, far.x, far.y); VIEW.frame(0.016, 1);
+      r.holdFlag = O.poles.n >= 1 && O.faint.n >= 1;
+      orderAuto(sq);
+      // health bars and damage numbers over a stretch of battle
+      setSetting('damageNumbers', true);
+      r.bars = 0; r.numbers = 0;
+      for (let i = 0; i < 400 && RT.phase === 'battle'; i++) {
+        VIEW.beforeStep(); step(STEP);
+        if (i % 4) continue;
+        VIEW.frame(STEP * 4, 1);
+        r.bars = Math.max(r.bars, H.bars.n); r.numbers = Math.max(r.numbers, H.numbers.length);
+        if (i % 40 === 0) await new Promise(res => setTimeout(res, 5));
+      }
+      setSetting('damageNumbers', false);
+      return r;
+    });
+    check('a badge over every incoming longboat, with its raider count', u.boats > 0 && u.markers === u.boats && u.counts, u.markers + ' badges for ' + u.boats + ' boats');
+    check('boats out of view get an edge badge with an arrow', u.edge > 0, u.edge + ' at the edge when zoomed in');
+    check('rings mark where the boats will land', u.landing >= 1, u.landing + ' rings');
+    check("the settlers' own boat is moored at the dock", u.dock === 1);
+    check('a selected building gets an outline, a ground ring and an info chip', u.outline && u.chip.startsWith(u.bName), u.chip);
+    check('a selected squad gets rings, a route to the hovered tile and a flag', u.rings >= u.members && u.dashes > 5 && u.flags >= 1 && u.sqChip.startsWith(u.sqName), u.rings + ' rings, ' + u.dashes + ' dashes, chip "' + u.sqChip + '"');
+    check('squads holding a tile show a flag there', u.holdFlag);
+    check('health bars show during a battle', u.bars > 0, u.bars + ' at most');
+    check('damage numbers when switched on', u.numbers > 0, u.numbers + ' at most');
+
+    // Settings tab: quality, overrides, theme, motion, overlay, persistence
+    await page.click('#tab-settings');
+    await page.waitForTimeout(250);
+    const q = async label => { await page.click('[data-act="set"][data-arg="' + label + '"]'); await page.waitForTimeout(120); return page.evaluate(() => ({ level: VIEW.level, shadows: VIEW.renderer.shadowMap.enabled, dpr: VIEW.dprCap, density: VIEW.puffs.density, detail: VIEW.props.sets.tufts.mesh.visible })); };
+    const low = await q('quality:low');
+    const lowShadow = await q('shadows:on');
+    await q('shadows:auto');
+    const high = await q('quality:high');
+    check('quality Low turns off shadows, extra pixels, grass detail and most effects', low.level === 'low' && !low.shadows && low.dpr === 1 && low.density < 0.6 && !low.detail, JSON.stringify(low));
+    check('an explicit choice overrides the quality level', lowShadow.shadows === true);
+    check('quality High brings them back', high.level === 'high' && high.shadows && high.density === 1 && high.detail, JSON.stringify(high));
+    await q('theme:dark');
+    const dusk = await page.evaluate(() => ({ attr: document.documentElement.getAttribute('data-theme'), dusk: VIEW.buildings.dusk }));
+    await q('motion:reduce');
+    const reduced = await page.evaluate(() => { VIEW.rig.shake(0.3); return { amp: VIEW.rig.shakeAmp, flag: VIEW.rig.reducedMotion }; });
+    await page.keyboard.press('F3');
+    await page.waitForTimeout(400);
+    const perf = await page.evaluate(() => { const e = document.querySelector('.perf-hud'); return e && !e.hidden ? e.textContent : ''; });
+    await page.screenshot({ path: path.join(out, '3d-settings.png') });
+    check('the theme setting switches the island to dusk', dusk.attr === 'dark' && dusk.dusk, JSON.stringify(dusk));
+    check('reduced motion from Settings stops camera shake', reduced.flag && reduced.amp === 0, JSON.stringify(reduced));
+    check('F3 shows frame rate and draw calls', /fps/.test(perf) && /draw calls/.test(perf), perf.split('\n')[0]);
+
+    // sound: off on first load; on from Settings (a real click, so the browser allows it)
+    const s0 = await page.evaluate(() => AUDIO.stats());
+    await page.click('[data-act="set"][data-arg="sound:true"]');
+    await page.waitForTimeout(300);
+    const s1 = await page.evaluate(async () => {
+      for (const b of G.buildings) b.hp = b.maxHp;
+      while (RT.phase !== 'countdown') { VIEW.beforeStep(); step(STEP); }
+      while (RT.timer > 0.5) { VIEW.beforeStep(); step(STEP); }
+      for (let i = 0; i < 600; i++) { VIEW.beforeStep(); step(STEP); AUDIO.update(STEP); if (i % 6 === 0) { VIEW.frame(STEP * 6, 1); await new Promise(res => setTimeout(res, 2)); } }
+      return AUDIO.stats();
+    });
+    check('sound is off until switched on', s0.enabled === false && s0.state === 'none', JSON.stringify(s0));
+    check('switching sound on plays the battle: horn, steel, arrows', s1.enabled && s1.state === 'running' && s1.played.horn >= 1 && (s1.played.clink || 0) + (s1.played.shot || 0) > 3, JSON.stringify(s1));
+
+    // everything sticks across a reload, and the game save is untouched by it
+    const before = await page.evaluate(() => { saveGame(); return { save: Object.keys(JSON.parse(localStorage.getItem(SAVE_KEY))).sort().join() }; });
+    await page.reload(); await page.waitForTimeout(1200);
+    const after = await page.evaluate(() => ({ quality: SETTINGS.quality, theme: SETTINGS.theme, motion: SETTINGS.motion, sound: SETTINGS.sound, perf: SETTINGS.perfOverlay, save: Object.keys(JSON.parse(localStorage.getItem(SAVE_KEY))).sort().join(), loaded: G.buildings.length > 3 }));
+    check('settings are remembered across a reload', after.quality === 'high' && after.theme === 'dark' && after.motion === 'reduce' && after.sound === true && after.perf === true, JSON.stringify(after));
+    check('the game save has the same fields as before and still loads', after.save === before.save && after.loaded);
+    check('no errors', errors.length === 0, errors.slice(0, 3).join(' | '));
+    await ctx.close();
+  }
+
+  console.log('auto quality');
+  {
+    // the real loop runs for ~15 s; auto may change level at most twice and never goes back up after going down
+    const { ctx, page, errors } = await open(browser, { viewport: { width: 1000, height: 640 } });
+    await page.evaluate(() => { G.paused = false; });
+    await page.waitForTimeout(16000);
+    const a = await page.evaluate(() => ({ history: VIEW.auto.history, done: VIEW.auto.done, median: VIEW.auto.median, level: VIEW.level, setting: SETTINGS.quality }));
+    const L = ['low', 'medium', 'high'], h = a.history.map(x => L.indexOf(x));
+    let ok = h.length <= 3, down = false;
+    for (let i = 1; i < h.length; i++) { if (h[i] < h[i - 1]) down = true; else if (down) ok = false; }
+    check('auto quality settles without flickering', a.setting === 'auto' && ok && a.level === a.history[a.history.length - 1], a.history.join(' -> ') + ' (median frame ' + (a.median || 0).toFixed(1) + ' ms' + (a.done ? ', settled' : '') + ')');
     check('no errors', errors.length === 0, errors.slice(0, 3).join(' | '));
     await ctx.close();
   }

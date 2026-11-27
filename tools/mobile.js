@@ -192,6 +192,25 @@ async function testDevice(browser, name) {
   });
   check(results, 'touch targets at least 34px', small.length === 0, small.join(', '));
 
+  // ---- Settings tab on a phone ----
+  await page.tap('#tab-settings');
+  await page.waitForTimeout(250);
+  const setSmall = await page.evaluate(() => {
+    const bad = [];
+    for (const el of document.querySelectorAll('#panel-body button')) {
+      const r = el.getBoundingClientRect();
+      if (r.width && (r.height < 34 || r.width < 34)) bad.push(el.textContent.trim() + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
+    }
+    return bad;
+  });
+  const lowBtn = page.locator('[data-act="set"][data-arg="quality:low"]');
+  await lowBtn.scrollIntoViewIfNeeded();
+  await lowBtn.tap();
+  await page.waitForTimeout(200);
+  const lv = await page.evaluate(() => ({ level: VIEW.level, shadows: VIEW.renderer.shadowMap.enabled }));
+  check(results, 'Settings tab: finger-sized choices, and Low quality applies', setSmall.length === 0 && lv.level === 'low' && !lv.shadows, setSmall.join(', ') + ' ' + JSON.stringify(lv));
+  if (name === DEVICES[0]) await page.screenshot({ path: path.join(out, 'mobile-settings.png') });
+
   await page.evaluate(() => { UI.tab = 'squads'; UI.selSq = null; renderPanel(); VIEW.rig.settle(); VIEW.frame(0.016, 1); });
   await page.waitForTimeout(250);
   await page.screenshot({ path: path.join(out, 'mobile-' + name.replace(/\s+/g, '-').toLowerCase() + '.png') });
