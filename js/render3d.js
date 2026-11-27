@@ -19,6 +19,49 @@
 window.R3 = window.R3 || {};
 (function (R3) {
   const MIST = 16;             // mist banks drifting round a Fogbound island
+
+  /* Quality levels. Explicit choices in Settings (shadows, pixel ratio, particles) override the
+     level's own value; "auto" follows it. Phones get a lower pixel-ratio ceiling. */
+  const LEVELS = ['low', 'medium', 'high'];
+  function preset(level, mobile) {
+    if (level === 'low') return { dpr: 1, shadows: false, shadowSize: 512, soft: false, particles: 0.45, detail: false };
+    if (level === 'medium') return { dpr: mobile ? 1.25 : 1.5, shadows: true, shadowSize: 1024, soft: false, particles: 0.75, detail: true };
+    return { dpr: mobile ? 1.5 : 2, shadows: true, shadowSize: mobile ? 1024 : 2048, soft: true, particles: 1, detail: true };
+  }
+  const DENSITY = { low: 0.4, medium: 0.7, high: 1 };
+
+  /* Auto quality: watch the median frame time over 5-second windows after a short warm-up and
+     step down when it's slow or up when there's plenty of headroom. It can step up at most once,
+     never steps up again after stepping down, and stops watching after a few windows, so it
+     never flickers between levels. */
+  class AutoQuality {
+    constructor(start) {
+      this.level = start; this.history = [start]; this.samples = []; this.t = 0; this.windows = 0;
+      this.done = false; this.wentDown = false; this.wentUp = false; this.last = 0;
+    }
+    // Returns a new level when it decides to change, else null.
+    tick(now) {
+      if (this.done) return null;
+      const gap = this.last ? now - this.last : 0;
+      this.last = now;
+      if (!gap || gap > 250) return null;              // first frame, or the tab was away
+      this.t += gap / 1000;
+      if (this.t < AUTO_WARM) return null;             // shaders compiling, textures uploading
+      this.samples.push(gap);
+      if (this.t < AUTO_WARM + AUTO_WINDOW) return null;
+      const s = this.samples.sort((a, b) => a - b), med = s[s.length >> 1];
+      this.samples = []; this.t = 0; this.windows++;
+      const i = LEVELS.indexOf(this.level);
+      let next = null;
+      if (med > (this.level === 'high' ? 22 : 36) && i > 0) { next = LEVELS[i - 1]; this.wentDown = true; }
+      else if (med < 17.5 && i < LEVELS.length - 1 && !this.wentDown && !this.wentUp) { next = LEVELS[i + 1]; this.wentUp = true; }
+      if (next) { this.level = next; this.history.push(next); }
+      this.median = med;
+      if (!next || this.windows >= 3 || (this.wentDown && this.wentUp)) this.done = true;
+      return next;
+    }
+  }
+  const AUTO_WARM = 1, AUTO_WINDOW = 5;
   const SUN_SWING = 0.32, SUN_PERIOD = 720;    // the sun's slow drift: radians either way, seconds
   const _sun = new THREE.Vector3();
 
@@ -47,6 +90,7 @@ window.R3 = window.R3 || {};
       try { coarse = window.matchMedia('(pointer: coarse)').matches; } catch (e) { /* old browser */ }
       this.mobile = coarse || window.innerWidth < 760;
       this.dprCap = this.mobile ? 1.5 : 2;
+      this.auto = new AutoQuality(this.mobile ? 'medium' : 'high');
 
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -83,13 +127,16 @@ window.R3 = window.R3 || {};
       this.units.onBossHit = a => this.rig.shake(a);
       this.units.boats.onBoss = (x, z) => { this.bossNudges = (this.bossNudges || 0) + (this.rig.nudge(x, z) ? 1 : 0); };
       this.missiles = new R3.Missiles(this.scene, fx);
-      this.overlay = new R3.Overlay(this.scene, this.buildings, this.picker);
+      this.overlay = new R3.Overlay(this.scene, this.buildings, this.picker, this.units);
+      this.hud = new R3.Hud(this);
       this.occupied = tile => this.buildings.byTile.has(tile);
 
       this.buildIsland();
       this.applyTheme();
+      this.applySettings();
       this.resize();
       this.rig.recentre(true);
+      if (typeof onSettingsChange === 'function') onSettingsChange(() => this.applySettings());
 
       // Follow the page theme (system setting or the explicit data-theme attribute).
       try { window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => this.applyTheme()); } catch (e) { /* old browser */ }
@@ -109,10 +156,53 @@ window.R3 = window.R3 || {};
       this.sea = R3.Sea.build(this.theme());
       this.props = R3.Props.build(this.propMats);
       this.scene.add(this.terrain.group, this.sea.mesh, this.props.group);
+      this.applyDetail();
       const b = R3.Terrain.landBounds();
       this.rig.setBounds(b);
       this.applyTheme();
       this.rig.recentre(true);
+    },
+
+    // The level in use: the player's choice, or what auto quality settled on.
+    qualityLevel() {
+      const q = typeof SETTINGS !== 'undefined' ? SETTINGS.quality : 'auto';
+      return q === 'auto' ? this.auto.level : q;
+    },
+
+    // Apply quality and the other settings that touch the renderer. Cheap when nothing changed.
+    applySettings() {
+      const S = typeof SETTINGS !== 'undefined' ? SETTINGS : { shadows: 'auto', pixelRatio: 'auto', particles: 'auto', autoRotate: false };
+      const level = this.qualityLevel(), P = preset(level, this.mobile);
+      this.level = level;
+      // shadows: switching them (or their filter) needs the lit materials recompiled
+      const shadows = S.shadows === 'auto' ? P.shadows : S.shadows === 'on';
+      const type = P.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap, sm = this.renderer.shadowMap;
+      if (sm.enabled !== shadows || sm.type !== type) {
+        sm.enabled = shadows; sm.type = type;
+        this.scene.traverse(o => { if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true; });
+      }
+      this.sun.castShadow = shadows;
+      if (this.sun.shadow.mapSize.x !== P.shadowSize) {
+        this.sun.shadow.mapSize.set(P.shadowSize, P.shadowSize);
+        if (this.sun.shadow.map) { this.sun.shadow.map.dispose(); this.sun.shadow.map = null; }
+      }
+      // resolution
+      const cap = S.pixelRatio === 'auto' ? P.dpr : +S.pixelRatio;
+      if (cap !== this.dprCap) { this.dprCap = cap; this.resize(); }
+      // effects and small details
+      const dens = S.particles === 'auto' ? P.particles : DENSITY[S.particles];
+      for (const k of ['puffs', 'sparks', 'foam']) this.fx[k].density = dens;
+      this.detail = P.detail;
+      this.applyDetail();
+      // camera comfort
+      this.rig.autoRotate = !!S.autoRotate;
+      this.rig.reducedMotion = typeof prefersReducedMotion === 'function' ? prefersReducedMotion() : this.rig.reducedMotion;
+      this.shadows = shadows; this.density = dens;
+    },
+    // Grass tufts and flowers are left out at Low quality.
+    applyDetail() {
+      if (!this.props) return;
+      for (const k of ['tufts', 'flowers']) { const set = this.props.sets[k]; set.mesh.visible = this.detail !== false && set.items.length > 0; }
     },
 
     // The light/dark settings for this island (Fogbound has its own sky).
@@ -185,6 +275,12 @@ window.R3 = window.R3 || {};
 
     frame(dt, alpha) {
       if (this.map !== MAP) this.buildIsland();
+      const now = performance.now();
+      if (this.lastNow) this.hud.sample(now - this.lastNow);
+      this.lastNow = now;
+      if (typeof SETTINGS === 'undefined' || SETTINGS.quality === 'auto') {
+        if (this.auto.tick(now)) this.applySettings();
+      }
       this.time += dt;
       this.wind.value = this.time;
       this.rig.update(dt);
@@ -201,8 +297,11 @@ window.R3 = window.R3 || {};
       this.missiles.sync(alpha === undefined ? 1 : alpha, dt);
       this.puffs.update(dt); this.sparks.update(dt); this.foam.update(dt); this.mist.update(dt); this.rings.update(dt); this.ripples.update(dt);
       this.glow.end(); this.lights.end();
-      this.overlay.update();
+      this.overlay.update(dt);
       this.renderer.render(this.scene, this.camera);
+      const info = this.renderer.info.render;
+      this.lastCalls = info.calls; this.lastTris = info.triangles;
+      this.hud.update(dt);
     },
 
     pickTile(mx, my) { return this.picker.tile(mx, my); },

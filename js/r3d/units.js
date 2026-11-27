@@ -253,7 +253,7 @@ window.R3 = window.R3 || {};
   class Boats {
     constructor(group, mat, fx) {
       this.fx = fx;
-      this.hulls = [new R3.Batch(group, UM.boat(false), mat, 8, { shadow: true }), new R3.Batch(group, UM.boat(true), mat, 2, { shadow: true })];
+      this.hulls = [new R3.Batch(group, UM.boat(false), mat, 8, { shadow: true }), new R3.Batch(group, UM.boat(true), mat, 2, { shadow: true }), new R3.Batch(group, UM.boat('player'), mat, 1, { shadow: true })];
       this.oars = new R3.Batch(group, UM.oar(), mat, 64);
       this.prev = new Map(); this.state = new Map(); this.frame = 0;
       this.onBoss = null;       // (x, z) when the Warlord's boat first comes into view
@@ -266,7 +266,21 @@ window.R3 = window.R3 || {};
     }
     sync(alpha, dt, t, initial) {
       const f = ++this.frame;
-      this.hulls[0].begin(); this.hulls[1].begin(); this.oars.begin();
+      this.hulls[0].begin(); this.hulls[1].begin(); this.hulls[2].begin(); this.oars.begin();
+      // the settlers' own longboat, moored at the dock with its oars shipped
+      const dock = MAP && MAP.dock;
+      if (dock) {
+        const h = Math.atan2(dock.x + 0.5 - (dock.sx + 0.5), dock.y + 0.5 - (dock.sy + 0.5)) + Math.PI / 2;   // side-on to the shore
+        _q.setFromEuler(_e.set(Math.sin(t * 1.2) * 0.02, h, Math.sin(t * 0.9 + 1) * 0.035, 'YXZ'));
+        _v.set(dock.sx + 0.5, Math.sin(t * 1.4) * 0.018 - 0.02, dock.sy + 0.5); _s.set(0.9, 0.9, 0.9);
+        _root.compose(_v, _q, _s);
+        this.hulls[2].add(_root, WHITE);
+        for (let i = 0; i < UM.OARLOCKS.length; i++) {
+          const [ox, oy, oz, side] = UM.OARLOCKS[i];
+          _part.multiplyMatrices(_root, local(ox, oy, oz, 0, (side < 0 ? Math.PI : 0) + side * 1.35, 0.25, 'YZX'));
+          this.oars.add(_part, WHITE);
+        }
+      }
       for (const b of RT.boats) {
         if (b.state === 'gone') continue;
         if (RT.phase === 'countdown' && RT.timer > b.visibleAt && b.state === 'sail') continue;   // still in the fog
@@ -329,11 +343,11 @@ window.R3 = window.R3 || {};
         }
         st.last = b.state;
       }
-      this.hulls[0].end(); this.hulls[1].end(); this.oars.end();
+      this.hulls[0].end(); this.hulls[1].end(); this.hulls[2].end(); this.oars.end();
       if (f % 60 === 0) for (const [id, st] of this.state) if (st.frame !== f) { this.state.delete(id); this.prev.delete(id); }
     }
     clear() { this.prev.clear(); this.state.clear(); }
-    dispose() { for (const b of [this.hulls[0], this.hulls[1], this.oars]) { b.geo.dispose(); b.dispose(); } }
+    dispose() { for (const b of [this.hulls[0], this.hulls[1], this.hulls[2], this.oars]) { b.geo.dispose(); b.dispose(); } }
   }
 
   // Something falls into the sea: a ring, a crown of droplets and a patch of foam.

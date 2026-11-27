@@ -36,6 +36,7 @@ function start(data) {
   VIEW = chosen.view;
   resetRuntime();
   initUI();
+  if (typeof AUDIO !== 'undefined') AUDIO.init();
   if (chosen.fellBack) setBanner('Classic map', 'This browser can\'t show the 3D island, so the flat map is shown instead.', 'bad');
 
   if (loaded && !(data && data.save)) {
@@ -72,6 +73,7 @@ function start(data) {
       if (n >= 30) acc = 0;
     }
     VIEW.frame(dt, G.paused ? 1 : acc / STEP);
+    if (typeof AUDIO !== 'undefined') AUDIO.update(dt);
     updateHeader();
     panelT -= dt;
     if (panelT <= 0) { panelT = 0.2; renderPanel(); }

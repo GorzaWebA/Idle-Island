@@ -180,7 +180,9 @@ window.R3 = window.R3 || {};
   // Cross sections along the keel: z, half beam, gunwale height.
   const HULL = [[-0.66, 0.0, 0.25], [-0.5, 0.1, 0.16], [-0.25, 0.165, 0.12], [0.25, 0.165, 0.12], [0.5, 0.1, 0.16], [0.66, 0.0, 0.25]];
   const KEEL = -0.07;
-  function boat(boss) {
+  // kind: true or 'boss' for the Warlord's boat, 'player' for the settlers' own boat at the dock
+  function boat(kind) {
+    const boss = kind === true || kind === 'boss', player = kind === 'player';
     const mb = new R3.MeshBuilder();
     for (let i = 0; i < HULL.length - 1; i++) {
       const [z0, w0, h0] = HULL[i], [z1, w1, h1] = HULL[i + 1];
@@ -207,7 +209,7 @@ window.R3 = window.R3 || {};
       }
     }
     // shields along the gunwales
-    const cols = boss ? [T.darkSteel, T.gold, T.darkSteel] : [T.raider, T.sail, T.shieldWood];
+    const cols = boss ? [T.darkSteel, T.gold, T.darkSteel] : player ? [T.shieldBlue, T.sail, T.shieldWood] : [T.raider, T.sail, T.shieldWood];
     for (const s of [1, -1]) for (let k = 0; k < 5; k++) {
       const z = -0.36 + k * 0.18, w = 0.17;
       mb.setMatrix(M4().makeRotationZ(-s * Math.PI / 2).setPosition(s * w, 0.11, z))
@@ -218,7 +220,7 @@ window.R3 = window.R3 || {};
     mb.box(-0.34, 0.9, 0.035, 0.34, 0.92, 0.055, T.hullDark);
     const stripes = 6, sw = 0.64 / stripes;
     for (let i = 0; i < stripes; i++) {
-      const x0 = -0.32 + i * sw, x1 = x0 + sw, c = boss ? (i % 3 === 1 ? T.gold : T.raiderDark) : (i % 2 ? T.sailStripe : T.sail);
+      const x0 = -0.32 + i * sw, x1 = x0 + sw, c = boss ? (i % 3 === 1 ? T.gold : T.raiderDark) : player ? (i % 2 ? T.playerSail : T.sail) : (i % 2 ? T.sailStripe : T.sail);
       // slightly bellied: the middle row bulges forward
       mb.poly([[x0, 0.9, 0.06], [x1, 0.9, 0.06], [x1, 0.62, 0.11], [x0, 0.62, 0.11]], c, [0, 0.2, 1]);
       mb.poly([[x0, 0.62, 0.11], [x1, 0.62, 0.11], [x1, 0.38, 0.07], [x0, 0.38, 0.07]], c, [0, -0.2, 1]);

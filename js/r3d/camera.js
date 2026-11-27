@@ -21,7 +21,9 @@ window.R3 = window.R3 || {};
       this._v = new THREE.Vector3(); this._w = new THREE.Vector3();
       this.shakeAmp = 0; this.slowT = 0;
       this.reducedMotion = false;
-      try { const mq = window.matchMedia('(prefers-reduced-motion: reduce)'); this.reducedMotion = mq.matches; mq.addEventListener('change', e => { this.reducedMotion = e.matches; }); } catch (e) { /* old browser */ }
+      // the player's Settings choice, or the system's
+      const reduced = () => (typeof prefersReducedMotion === 'function' ? prefersReducedMotion() : window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      try { this.reducedMotion = reduced(); window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => { this.reducedMotion = reduced(); }); } catch (e) { /* old browser */ }
     }
 
     // A short camera shake (boss blows). Skipped when the system asks for reduced motion.
