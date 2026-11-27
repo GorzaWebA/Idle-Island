@@ -156,7 +156,7 @@ window.R3 = window.R3 || {};
       const mesh = new THREE.Group();
       const mi = new THREE.Mesh(inner, mat), mo = new THREE.Mesh(outer, mat);
       mi.renderOrder = 1; mo.renderOrder = 1;
-      mo.material = mat.clone(); mo.material.side = THREE.DoubleSide;
+      mo.material = mat.clone(); mo.material.side = THREE.DoubleSide; mo.material.forceSinglePass = true;
       mo.material.uniforms = uniforms;
       mesh.add(mi, mo);
       const geo = { dispose() { inner.dispose(); outer.dispose(); mo.material.dispose(); } };

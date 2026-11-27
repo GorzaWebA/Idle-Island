@@ -2,7 +2,6 @@
 /* Canvas renderer: oblique 3/4 view of the island, units, boats and effects. */
 
 const VH = [0, 0.22, 0.6, 1.3];          // visual height per tile type
-const SQUAD_COLORS = ['#f2c94c', '#56ccf2', '#eb5757', '#6fcf97', '#bb6bd9', '#f2994a', '#2dd4bf', '#f5f5f5', '#a3e635'];
 const PAL = {
   seaTop: '#1d4757', seaBot: '#163846', wave: 'rgba(210,235,240,0.10)', shallow: 'rgba(120,190,200,0.28)', foam: 'rgba(235,245,240,0.55)',
   sand: '#d9c48c', sandSide: '#ae9660', grass: '#77a253', grassSide: '#4f7438', high: '#99a07c', highSide: '#686b52',
@@ -269,7 +268,6 @@ function drawGroundOverlays(ctx) {
   }
 }
 
-function squadColor(sq) { return SQUAD_COLORS[Math.max(0, G.squads.indexOf(sq)) % SQUAD_COLORS.length]; }
 
 /* ---------- trees ---------- */
 function drawTrees(ctx, x, y) {

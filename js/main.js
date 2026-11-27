@@ -62,7 +62,7 @@ function start(data) {
 
   try { window.claude && window.claude.hot && window.claude.hot.snapshot && window.claude.hot.snapshot(() => ({ save: serialize() })); } catch (e) { /* no hot reload host */ }
 
-  let last = performance.now(), acc = 0, panelT = 0;
+  let last = performance.now(), acc = 0, panelT = 0, headerT = 0;
   function frame(now) {
     let dt = (now - last) / 1000; last = now;
     dt = Math.min(Math.max(dt, 0), 0.25);
@@ -72,9 +72,12 @@ function start(data) {
       while (acc >= STEP && n < 30) { VIEW.beforeStep(); step(STEP); acc -= STEP; n++; }
       if (n >= 30) acc = 0;
     }
-    VIEW.frame(dt, G.paused ? 1 : acc / STEP);
+    // nothing is drawn while the tab is hidden (browsers also stop calling us; the sim's
+    // offline catch-up covers the time away)
+    if (!document.hidden) VIEW.frame(dt, G.paused ? 1 : acc / STEP);
     if (typeof AUDIO !== 'undefined') AUDIO.update(dt);
-    updateHeader();
+    headerT -= dt;
+    if (headerT <= 0) { headerT = 0.08; updateHeader(); }     // ~12 times a second is plenty for text
     panelT -= dt;
     if (panelT <= 0) { panelT = 0.2; renderPanel(); }
     requestAnimationFrame(frame);

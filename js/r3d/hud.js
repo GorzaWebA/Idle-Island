@@ -15,7 +15,14 @@ window.R3 = window.R3 || {};
   function el(tag, cls, parent) { const e = document.createElement(tag); if (cls) e.className = cls; if (parent) parent.appendChild(e); return e; }
   function setText(e, v) { if (e._t !== v) { e.textContent = v; e._t = v; } }
   function setShown(e, on) { if (e.hidden === on) e.hidden = !on; }
-  function place(e, x, y) { e.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px)'; }
+  // Move a label, touching the DOM only when it moved by a whole pixel.
+  function place(e, x, y, centre) {
+    x = Math.round(x); y = Math.round(y);
+    if (e._x === x && e._y === y) return;
+    e._x = x; e._y = y;
+    e.style.transform = 'translate(' + x + 'px,' + y + 'px)' + (centre || '');
+  }
+  function byId(list, id) { for (let i = 0; i < list.length; i++) if (list[i].id === id) return list[i]; return null; }
 
   /* ---------- health bars ----------
      A quad per bar, sized in screen pixels around a 3D anchor. Fill, background and a 1 px
@@ -88,7 +95,7 @@ window.R3 = window.R3 || {};
       this.bars = new Bars(view.scene, 96);
       this.lastHp = new Map(); this.numbers = [];          // damage numbers: renderer-owned
       this.frames = new Float32Array(120); this.fi = 0; this.fn = 0; this.perfT = 0;
-      this.time = 0;
+      this.time = 0; this.chipT = 0; this.chipKey = null; this.chipText = null;
     }
     sample(ms) { this.frames[this.fi] = ms; this.fi = (this.fi + 1) % this.frames.length; this.fn = Math.min(this.fn + 1, this.frames.length); }
     frameStats() {
@@ -102,7 +109,7 @@ window.R3 = window.R3 || {};
       this.time += dt;
       const sz = this.size();
       this.boatMarkers(sz);
-      this.selectionChip();
+      this.selectionChip(dt);
       this.healthBars(sz);
       this.damageNumbers(dt);
       this.floaters();
@@ -142,8 +149,9 @@ window.R3 = window.R3 || {};
           }
           const cls = 'boat-mark' + (b.boss ? ' boss' : '') + (edge ? ' edge' : '');
           if (m.className !== cls) m.className = cls;
-          setText(m.count, String(b.cargo.length));
-          if (edge) m.arrow.style.transform = 'rotate(' + ang.toFixed(3) + 'rad) translateX(16px)';
+          if (m._n !== b.cargo.length) { m._n = b.cargo.length; setText(m.count, String(m._n)); }
+          const a = Math.round(ang * 50);
+          if (edge && m._a !== a) { m._a = a; m.arrow.style.transform = 'rotate(' + (a / 50) + 'rad) translateX(16px)'; }
           place(m, x, y);
           setShown(m, true);
         }
@@ -152,23 +160,32 @@ window.R3 = window.R3 || {};
     }
 
     /* ---------- the selected building or squad ---------- */
-    selectionChip() {
+    selectionChip(dt) {
       const ui = typeof UI !== 'undefined' ? UI : null;
       let text = '', x = 0, y = 0, z = 0;
+      const fresh = (this.chipT -= dt) <= 0, key = ui ? (ui.placing ? 0 : ui.selB || -(ui.selSq || 0)) : 0;
+      if (fresh || key !== this.chipKey) { this.chipT = 0.25; this.chipKey = key; this.chipText = null; }
       if (ui && ui.selB && !ui.placing) {
-        const b = G.buildings.find(o => o.id === ui.selB), st = b && this.buildings.state.get(b.id);
+        const b = byId(G.buildings, ui.selB), st = b && this.buildings.state.get(b.id);
         if (b && st) {
-          text = BUILDINGS[b.type].name + ' · Lv ' + b.lvl;
-          if (b.ruined) text += b.rebuild > 0 ? ' · rebuilding' : ' · in ruins';
-          else if (b.hp < b.maxHp - 0.5) text += ' · ' + Math.round(b.hp / b.maxHp * 100) + '%';
+          if (this.chipText === null) {
+            let s = BUILDINGS[b.type].name + ' · Lv ' + b.lvl;
+            if (b.ruined) s += b.rebuild > 0 ? ' · rebuilding' : ' · in ruins';
+            else if (b.hp < b.maxHp - 0.5) s += ' · ' + Math.round(b.hp / b.maxHp * 100) + '%';
+            this.chipText = s;
+          }
+          text = this.chipText;
           x = st.cx; y = st.gy + (st.h || 0.5) + 0.2; z = st.cz;
         }
       } else if (ui && ui.selSq && typeof RT !== 'undefined' && RT) {
-        const sq = G.squads.find(s => s.id === ui.selSq);
+        const sq = byId(G.squads, ui.selSq);
         if (sq && sq.rt) {
-          const n = sq.rt.members.length, size = sq.rt.stats ? sq.rt.stats.size : n;
-          const status = typeof squadStatus === 'function' ? squadStatus(sq)[1] : '';
-          text = sq.name + ' · ' + (CLASSES[sq.cls] ? CLASSES[sq.cls].name : '') + ' · ' + n + '/' + size + (status ? ' · ' + status : '');
+          if (this.chipText === null) {
+            const n = sq.rt.members.length, size = sq.rt.stats ? sq.rt.stats.size : n;
+            const status = typeof squadStatus === 'function' ? squadStatus(sq)[1] : '';
+            this.chipText = sq.name + ' · ' + (CLASSES[sq.cls] ? CLASSES[sq.cls].name : '') + ' · ' + n + '/' + size + (status ? ' · ' + status : '');
+          }
+          text = this.chipText;
           let sx = 0, sz = 0, k = 0, top = 0;
           for (const u of sq.rt.members) { const s = this.units.posOf(u); if (s) { sx += s.x; sz += s.z; top = Math.max(top, s.gy); k++; } }
           if (k) { x = sx / k; z = sz / k; y = Math.max(0, top) + 0.55; } else { x = sq.rt.ax; z = sq.rt.ay; y = Math.max(0, R3.Terrain.heightAt(x, z)) + 0.55; }
@@ -178,7 +195,7 @@ window.R3 = window.R3 || {};
       const o = this.picker.project(x, y, z, _o);
       if (o.behind) { setShown(this.chip, false); return; }
       setText(this.chip, text);
-      this.chip.style.transform = 'translate(' + Math.round(o.x) + 'px,' + Math.round(o.y) + 'px) translate(-50%, -100%)';
+      place(this.chip, o.x, o.y, ' translate(-50%, -100%)');
       setShown(this.chip, true);
     }
 
@@ -209,7 +226,7 @@ window.R3 = window.R3 || {};
             if (u.big || u.hp < u.maxHp) B.add(st.x, head, st.z, u.big ? 34 : 18, 3, u.hp / u.maxHp, 0xe45a4a);
           } else if (u.slot === 0 && u.sq && u.sq.rt && u.sq.rt.stats && u.sq.rt.members.length < u.sq.rt.stats.size) {
             // a commander shows how many of the squad are left
-            B.add(st.x, head + 0.14, st.z, 26, 3, u.sq.rt.members.length / u.sq.rt.stats.size, typeof squadColor === 'function' ? squadColor(u.sq) : 0xf2c94c);
+            B.add(st.x, head + 0.14, st.z, 26, 3, u.sq.rt.members.length / u.sq.rt.stats.size, typeof squadHex === 'function' ? squadHex(u.sq) : 0xf2c94c);
           }
         }
       }
@@ -243,30 +260,33 @@ window.R3 = window.R3 || {};
       if (!e) { e = el('span', 'floater', this.floatBox); this.floatEls[i] = e; e._t = ''; e._c = ''; e._s = false; }
       return e;
     }
+    // One label at a 3D point; returns the next free label index.
+    floatShow(i, x, y, z, text, color, alpha, small) {
+      const o = this.picker.project(x, y, z, _o);
+      if (o.behind) return i;
+      const e = this.floatEl(i);
+      setText(e, text);
+      if (e._c !== color) { e.style.color = color; e._c = color; }
+      if (e._s !== small) { e.classList.toggle('small', !!small); e._s = small; }
+      place(e, o.x, o.y, ' translate(-50%, -50%)');
+      const a = Math.round(Math.max(0, Math.min(1, alpha)) * 20);
+      if (e._o !== a) { e._o = a; e.style.opacity = String(a / 20); }
+      if (e.hidden) e.hidden = false;
+      return i + 1;
+    }
     floaters() {
       if (!this.floatBox) return;
       let i = 0;
       const max = 28;
-      const show = (x, y, z, text, color, alpha, small) => {
-        const o = this.picker.project(x, y, z, _o);
-        if (o.behind) return;
-        const e = this.floatEl(i++);
-        setText(e, text);
-        if (e._c !== color) { e.style.color = color; e._c = color; }
-        if (e._s !== small) { e.classList.toggle('small', !!small); e._s = small; }
-        e.style.transform = 'translate(' + Math.round(o.x) + 'px,' + Math.round(o.y) + 'px) translate(-50%, -50%)';
-        e.style.opacity = String(Math.max(0, Math.min(1, alpha)));
-        if (e.hidden) e.hidden = false;
-      };
       if (typeof RT !== 'undefined' && RT) {
         for (const f of RT.floaters) {
           if (i >= max) break;
           // the sim drifts floaters north as they age; undo that and rise straight up instead
           const x = f.x, z = f.y + f.t * 0.5 + 0.3;
-          show(x, Math.max(0, R3.Terrain.heightAt(x, z)) + 0.32 + f.t * 0.45, z, f.text, f.color, 1.3 - f.t, false);
+          i = this.floatShow(i, x, Math.max(0, R3.Terrain.heightAt(x, z)) + 0.32 + f.t * 0.45, z, f.text, f.color, 1.3 - f.t, false);
         }
       }
-      for (const n of this.numbers) { if (i >= max) break; show(n.x, n.y + n.t * 0.6, n.z, n.text, n.color, 1.2 - n.t / n.dur, true); }
+      for (const n of this.numbers) { if (i >= max) break; i = this.floatShow(i, n.x, n.y + n.t * 0.6, n.z, n.text, n.color, 1.2 - n.t / n.dur, true); }
       for (; i < this.floatEls.length; i++) if (!this.floatEls[i].hidden) this.floatEls[i].hidden = true;
     }
 

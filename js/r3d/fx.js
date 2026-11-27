@@ -92,7 +92,9 @@ window.R3 = window.R3 || {};
       #include <colorspace_fragment>
     }`;
 
-  // Shared shader setup for all sprite kinds.
+  /* Shared shader setup for all sprite kinds. Every transparent double-sided material here sets
+     forceSinglePass: otherwise three.js draws it twice, flipping its side and marking it for
+     update both times, which re-checks its shader program every frame. */
   function spriteMaterial(glow, flat) {
     const defines = {};
     if (glow) defines.GLOW = '';
@@ -101,7 +103,7 @@ window.R3 = window.R3 || {};
       defines,
       uniforms: { uMap: { value: spriteTexture() }, uFogColor: { value: new THREE.Color(0xffffff) }, uFogNear: { value: 30 }, uFogFar: { value: 80 }, uTint: { value: new THREE.Color(1, 1, 1) } },
       vertexShader: VERT, fragmentShader: FRAG,
-      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true,
       blending: glow ? THREE.AdditiveBlending : THREE.NormalBlending
     });
   }
@@ -246,7 +248,7 @@ window.R3 = window.R3 || {};
     // inner: inner radius as a fraction of the outer one (thin ripples use ~0.93)
     constructor(scene, max, inner) {
       this.max = max;
-      this.mat = new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+      this.mat = new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true });
       this.mesh = new THREE.InstancedMesh(new THREE.RingGeometry(inner || 0.82, 1, 32).rotateX(-Math.PI / 2), this.mat, max);
       this.mesh.count = 0; this.mesh.frustumCulled = false; this.mesh.renderOrder = 4;
       this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

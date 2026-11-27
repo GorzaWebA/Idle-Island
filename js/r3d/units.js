@@ -14,6 +14,7 @@ window.R3 = window.R3 || {};
   const _root = new THREE.Matrix4(), _loc = new THREE.Matrix4(), _part = new THREE.Matrix4(), _arm = new THREE.Matrix4(), _w = new THREE.Matrix4();
   const _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3(), _s = new THREE.Vector3(), _c = new THREE.Color(), _c2 = new THREE.Color();
   const WHITE = new THREE.Color(1, 1, 1);
+  const _sph = new THREE.Sphere();
   const ATTACK_TIME = 0.32;
 
   const clamp01 = k => (k < 0 ? 0 : k > 1 ? 1 : k);
@@ -48,6 +49,8 @@ window.R3 = window.R3 || {};
       this.boats = new Boats(this.group, this.mat, fx);
       this.frame = 0; this.time = 0; this.initial = true;
       this.onBossHit = null;
+      this.cull = null;        // a THREE.Frustum set by the renderer each frame; null draws everything
+      this.culled = 0;
     }
 
     snapshot() {
@@ -66,6 +69,7 @@ window.R3 = window.R3 || {};
       for (const k in this.bodies) this.bodies[k].begin();
       for (const k in this.weapons) this.weapons[k].begin();
       this.arms.begin(); this.legs.begin(); this.poles.begin(); this.flags.begin(); this.blobs.begin();
+      this.culled = 0;
 
       for (const u of RT.units) {
         if (!u.alive) continue;
@@ -114,12 +118,15 @@ window.R3 = window.R3 || {};
           st.wade = 0.45;     // wading ashore: rings spread from the legs
           this.fx.ripples.spawn(x, 0.02, z, 0.04, 0.24, 0.8, 0x5d7a80);
         }
+        // figures outside the view are animated but not drawn (zoomed in on a phone, most are)
+        if (this.cull && !this.cull.intersectsSphere(_sph.set(_v.set(x, st.gy + 0.25, z), 0.6 * ((K[u.kind] && K[u.kind].scale) || 1)))) { this.culled++; continue; }
         this.drawFigure(u, st, Math.max(st.gy, -0.06) + hopY, 0, 1);
       }
 
       // units that left the sim: fall, drown, or just go
-      for (const [id, st] of this.state) {
+      for (const st of this.state.values()) {
         if (st.frame === f) continue;
+        const id = st.u.id;
         if (!st.dead) {
           const u = st.u;
           if (u.fleeing || this.initial) { this.state.delete(id); this.prev.delete(id); continue; }
@@ -132,6 +139,7 @@ window.R3 = window.R3 || {};
         st.dt += dt;
         const limit = st.dead === 'drown' ? 1.6 : 2.4;
         if (st.dt > limit) { this.state.delete(id); this.prev.delete(id); continue; }
+        if (this.cull && !this.cull.intersectsSphere(_sph.set(_v.set(st.x, st.gy, st.z), 0.8))) continue;
         this.drawCorpse(st);
       }
 
@@ -165,7 +173,7 @@ window.R3 = window.R3 || {};
         _part.multiplyMatrices(_root, local(0.02, 0.07, -0.026, 0, 0, 0));
         this.poles.add(_part, WHITE);
         _part.multiplyMatrices(_root, local(0.02, 0.335, -0.026, 0, Math.sin(this.time * 5 + u.id) * 0.35 + Math.PI, 0));
-        this.flags.add(_part, _c.set(typeof squadColor === 'function' ? squadColor(u.sq) : '#ffffff'));
+        this.flags.add(_part, _c.setHex(typeof squadHex === 'function' ? squadHex(u.sq) : 0xffffff));
       }
       // soft round shadow on the ground
       if (st.gy > -0.05) {
@@ -276,8 +284,8 @@ window.R3 = window.R3 || {};
         _root.compose(_v, _q, _s);
         this.hulls[2].add(_root, WHITE);
         for (let i = 0; i < UM.OARLOCKS.length; i++) {
-          const [ox, oy, oz, side] = UM.OARLOCKS[i];
-          _part.multiplyMatrices(_root, local(ox, oy, oz, 0, (side < 0 ? Math.PI : 0) + side * 1.35, 0.25, 'YZX'));
+          const L = UM.OARLOCKS[i], side = L[3];
+          _part.multiplyMatrices(_root, local(L[0], L[1], L[2], 0, (side < 0 ? Math.PI : 0) + side * 1.35, 0.25, 'YZX'));
           this.oars.add(_part, WHITE);
         }
       }
@@ -307,7 +315,7 @@ window.R3 = window.R3 || {};
         // oars row while moving and stand up while the crew climbs out
         const rowing = b.state !== 'unload';
         for (let i = 0; i < UM.OARLOCKS.length; i++) {
-          const [ox, oy, oz, side] = UM.OARLOCKS[i];
+          const L = UM.OARLOCKS[i], ox = L[0], oy = L[1], oz = L[2], side = L[3];
           const ph = t * 4.2 + b.id;
           const sweep = rowing ? Math.sin(ph) * 0.45 : 0, dip = rowing ? -0.3 + Math.cos(ph) * 0.18 : 0.95;
           _part.multiplyMatrices(_root, local(ox, oy, oz, 0, (side < 0 ? Math.PI : 0) + sweep * side, dip, 'YZX'));
@@ -344,7 +352,7 @@ window.R3 = window.R3 || {};
         st.last = b.state;
       }
       this.hulls[0].end(); this.hulls[1].end(); this.hulls[2].end(); this.oars.end();
-      if (f % 60 === 0) for (const [id, st] of this.state) if (st.frame !== f) { this.state.delete(id); this.prev.delete(id); }
+      if (f % 60 === 0) for (const [id, st] of this.state) if (st.frame !== f) { this.state.delete(id); this.prev.delete(id); }   // once a second
     }
     clear() { this.prev.clear(); this.state.clear(); }
     dispose() { for (const b of [this.hulls[0], this.hulls[1], this.hulls[2], this.oars]) { b.geo.dispose(); b.dispose(); } }

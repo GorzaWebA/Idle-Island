@@ -15,7 +15,7 @@ window.R3 = window.R3 || {};
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _c = new THREE.Color();
   const UP = new THREE.Vector3(0, 1, 0);
   const ground = (x, z) => Math.max(0, R3.Terrain.heightAt(x, z));
-  const colourOf = sq => (typeof squadColor === 'function' ? squadColor(sq) : '#f2c94c');
+  const colourOf = sq => (typeof squadHex === 'function' ? squadHex(sq) : 0xf2c94c);
   const towerRange = (x, y) => 3.5 + (tileType(x, y) === T_HIGH ? 1 : 0);
 
   class TileMark {
@@ -152,7 +152,7 @@ window.R3 = window.R3 || {};
       this.geo = new THREE.BufferGeometry();
       this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
       this.geo.setIndex(idx);
-      this.mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+      this.mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true });
       this.mesh = new THREE.Mesh(this.geo, this.mat);
       this.mesh.renderOrder = 9; this.mesh.frustumCulled = false; this.mesh.visible = false;
       scene.add(this.mesh);
@@ -166,18 +166,13 @@ window.R3 = window.R3 || {};
       for (let i = 2; i < pts.length; i += 2) cum.push(cum[cum.length - 1] + Math.hypot(pts[i] - pts[i - 2], pts[i + 1] - pts[i - 1]));
       const total = cum[cum.length - 1];
       if (total < 0.05) { this.hide(); return; }
-      let seg = 0, n = 0;
-      const at = (d, out) => {
-        while (seg < cum.length - 2 && cum[seg + 1] < d) seg++;
-        const L = cum[seg + 1] - cum[seg] || 1, k = Math.max(0, Math.min(1, (d - cum[seg]) / L));
-        out.x = pts[seg * 2] + (pts[seg * 2 + 2] - pts[seg * 2]) * k; out.z = pts[seg * 2 + 1] + (pts[seg * 2 + 3] - pts[seg * 2 + 1]) * k;
-        return out;
-      };
+      let n = 0;
+      this.seg = 0;
       const a = this._a || (this._a = {}), b = this._b || (this._b = {});
       for (let d = -((t * 0.45) % period); d < total && n < this.max; d += period) {
         const d0 = Math.max(0, d), d1 = Math.min(total, d + DASH);
         if (d1 - d0 < 0.02) continue;
-        at(d0, a); at(d1, b);
+        this.at(pts, d0, a); this.at(pts, d1, b);
         let dx = b.x - a.x, dz = b.z - a.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
         const px = -dz * W / 2, pz = dx * W / 2, ya = ground(a.x, a.z) + 0.05, yb = ground(b.x, b.z) + 0.05, o = n * 12, P = this.pos;
         P[o] = a.x - px; P[o + 1] = ya; P[o + 2] = a.z - pz;
@@ -191,9 +186,21 @@ window.R3 = window.R3 || {};
       this.mat.color.set(color);
       this.mesh.visible = n > 0; this.dashes = n;
     }
+    // The point d along the path (distances only grow within one show(), so walk forward).
+    at(pts, d, out) {
+      const cum = this.cum;
+      let seg = this.seg;
+      while (seg < cum.length - 2 && cum[seg + 1] < d) seg++;
+      this.seg = seg;
+      const L = cum[seg + 1] - cum[seg] || 1, k = Math.max(0, Math.min(1, (d - cum[seg]) / L));
+      out.x = pts[seg * 2] + (pts[seg * 2 + 2] - pts[seg * 2]) * k; out.z = pts[seg * 2 + 1] + (pts[seg * 2 + 3] - pts[seg * 2 + 1]) * k;
+      return out;
+    }
     hide() { this.mesh.visible = false; this.dashes = 0; }
     dispose() { this.geo.dispose(); this.mat.dispose(); }
   }
+
+  function buildingWithId(id) { const L = G.buildings; for (let i = 0; i < L.length; i++) if (L[i].id === id) return L[i]; return null; }
 
   class Overlay {
     constructor(scene, buildings, picker, units) {
@@ -222,7 +229,7 @@ window.R3 = window.R3 || {};
       this.chipText = ''; this.chipCls = '';
       this._o = {};
       this.time = 0;
-      this.pathKey = ''; this.pathPts = [];
+      this.pathKey = ''; this.pathPts = []; this.pts = [];
       this.preview = null;                  // tile the selected squad would be sent to
     }
     setChip(text, cls, x, y) {
@@ -294,7 +301,7 @@ window.R3 = window.R3 || {};
       for (let i = near; i < this.near.length; i++) this.near[i].hide();
 
       // the selected building: outline, ground ring, ranges
-      const b = ui.selB ? G.buildings.find(o => o.id === ui.selB) : null;
+      const b = ui.selB ? buildingWithId(ui.selB) : null;
       const bst = b ? this.buildings.state.get(b.id) : null;
       if (b && bst) {
         this.sel.hide();
@@ -327,18 +334,19 @@ window.R3 = window.R3 || {};
           squadRing = true;
         }
         // where it would go: the hovered tile while choosing, else the rest of its current walk
-        let pts = null;
+        const pts = this.pts;
+        pts.length = 0;
+        pts.push(sq.rt.ax, sq.rt.ay);
         if (hv && !ui.placing && isLandTile(hv.x, hv.y)) {
-          pts = this.routeFor(sq, hv.x, hv.y).slice();
+          const r = this.routeFor(sq, hv.x, hv.y);
+          for (let i = 0; i < r.length; i++) pts.push(r[i]);
           this.flag(hv.x + 0.5, hv.y + 0.5, col, 2.4, t, 7);
           this.marks.add(hv.x + 0.5, ground(hv.x + 0.5, hv.y + 0.5) + 0.03, hv.y + 0.5, 0.36 + Math.sin(t * 5) * 0.03, col);
           this.preview = hv;
-        } else if (sq.rt.path && sq.rt.path.length) {
-          pts = [];
-          for (const q of sq.rt.path) pts.push(q.x, q.y);
+        } else if (sq.rt.path) {
+          for (let i = 0; i < sq.rt.path.length; i++) pts.push(sq.rt.path[i].x, sq.rt.path[i].y);
         }
-        if (pts && pts.length) {
-          pts.unshift(sq.rt.ax, sq.rt.ay);
+        if (pts.length > 2) {
           this.path.show(pts, col, t);
           path = true;
         }

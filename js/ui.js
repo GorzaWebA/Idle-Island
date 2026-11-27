@@ -14,6 +14,14 @@ function isTouch() {
 function verb() { return isTouch() ? 'Tap' : 'Click'; }
 const $ = id => document.getElementById(id);
 
+// Squad colours (banners, rings, bars), shared by both renderers. squadHex gives the number form,
+// so the 3D view never re-parses a colour string in its frame loop.
+const SQUAD_COLORS = ['#f2c94c', '#56ccf2', '#eb5757', '#6fcf97', '#bb6bd9', '#f2994a', '#2dd4bf', '#f5f5f5', '#a3e635'];
+const SQUAD_HEX = SQUAD_COLORS.map(c => parseInt(c.slice(1), 16));
+function squadIndex(sq) { return Math.max(0, G.squads.indexOf(sq)) % SQUAD_COLORS.length; }
+function squadColor(sq) { return SQUAD_COLORS[squadIndex(sq)]; }
+function squadHex(sq) { return SQUAD_HEX[squadIndex(sq)]; }
+
 function setText(el, v) { if (el && el.textContent !== v) el.textContent = v; }
 function setAttr(el, k, v) { if (el && el.getAttribute(k) !== v) el.setAttribute(k, v); }
 function setHidden(el, h) { if (el && el.hidden !== h) el.hidden = h; }

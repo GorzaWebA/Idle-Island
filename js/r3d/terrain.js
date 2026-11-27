@@ -145,12 +145,16 @@ window.R3 = window.R3 || {};
       const mat = R3.flatMaterial();
       const land = new THREE.Mesh(buildMesh(), mat);
       land.castShadow = true; land.receiveShadow = true;
+      // Its own shadow-depth material: three.js otherwise shares one between this plain mesh and
+      // all the instanced casters, and switches its shader back and forth every frame.
+      const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+      land.customDepthMaterial = depth;
       const bed = new THREE.Mesh(buildSeabed(), mat);
       bed.receiveShadow = true;
       group.add(land, bed);
       return {
         group, triangles: land.geometry.attributes.position.count / 3,
-        dispose() { land.geometry.dispose(); bed.geometry.dispose(); mat.dispose(); }
+        dispose() { land.geometry.dispose(); bed.geometry.dispose(); mat.dispose(); depth.dispose(); }
       };
     }
   };

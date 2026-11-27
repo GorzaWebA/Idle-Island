@@ -19,6 +19,10 @@ window.R3 = window.R3 || {};
   const SMOKE_DARK = 0x2f2b28, SMOKE_GREY = 0x7a746c, WINDOW = 0xffb45a;
   const rnd = Math.random;
 
+  // Building-local (x, z) to world, using the cos/sin of its turn stored on its state.
+  const wx = (st, x, z) => st.cx + x * st.cos + z * st.sin, wz = (st, x, z) => st.cz - x * st.sin + z * st.cos;
+  const NO_FOOT = [0.25, 0.25];
+
   function easeOutBack(k) { const c1 = 1.70158, c3 = c1 + 1, t = k - 1; return 1 + c3 * t * t * t + c1 * t * t; }
   // Quarter-turn variety for small buildings; the Hall, towers and walls stay square to the map.
   function rotFor(type, x, y) {
@@ -27,7 +31,8 @@ window.R3 = window.R3 || {};
   }
   function palisadeMask(at, x, y) {
     let m = 0;
-    for (const [bit, dx, dz] of R3.Models.ARMS) { const o = at(x + dx, y + dz); if (o && o.type === 'palisade') m |= bit; }
+    const A = R3.Models.ARMS;
+    for (let i = 0; i < A.length; i++) { const o = at(x + A[i][1], y + A[i][2]); if (o && o.type === 'palisade') m |= A[i][0]; }
     return m;
   }
 
@@ -74,7 +79,7 @@ window.R3 = window.R3 || {};
       this.batches = new Map();
       this.state = new Map();
       this.byTile = new Map();
-      this.frame = 0; this.time = 0; this.initial = true;
+      this.frame = 0; this.time = 0; this.initial = true; this.uploads = 0;
       const extra = (geo, cap) => {
         const m = new THREE.InstancedMesh(geo, this.mat, cap);
         m.count = 0; m.castShadow = true; m.frustumCulled = false;
@@ -98,9 +103,16 @@ window.R3 = window.R3 || {};
       const st = this.state.get(b.id);
       return R3.Terrain.tileTop(tx, tz) + (st && st.h ? st.h : 0.5);
     }
+    // The model variant for a building, remembered on its state so the cache key (a string) is
+    // only built again when its type, tier, ruin or palisade shape changes.
     modelFor(b) {
       const mask = b.type === 'palisade' ? palisadeMask(this.at, b.x, b.y) : 0;
-      return R3.Models.get(b.type, R3.Models.tierOf(b.type, b.lvl), b.ruined, mask);
+      const tier = R3.Models.tierOf(b.type, b.lvl), sig = (tier * 2 + (b.ruined ? 1 : 0)) * 64 + mask;
+      const st = this.state.get(b.id);
+      if (st && st.model && st.sig === sig) return st.model;
+      const m = R3.Models.get(b.type, tier, b.ruined, mask);
+      if (st) { st.model = m; st.sig = sig; }
+      return m;
     }
 
     // A building gives way: a burst of flame, sparks and ash.
@@ -124,25 +136,16 @@ window.R3 = window.R3 || {};
       else if (b.ruined) { smoke = 0.6; smokeCol = SMOKE_GREY; lift = 0.5; }                        // being cleared
       if (!I && !smoke) { st.fA = st.sA = st.eA = 0; return; }
 
-      const P = this.puffs, S = this.fx.sparks, foot = R3.Models.FOOT[b.type] || [0.25, 0.25];
-      const fw = foot[0] * 0.8, fd = foot[1] * 0.8, h = b.ruined ? 0.22 : st.h;
-      const cos = Math.cos(st.rot), sin = Math.sin(st.rot), cx = st.cx, cz = st.cz, gy = st.gy;
-      // a random spot on the roof (or among the rubble)
-      const spot = out => {
-        const lx = (rnd() * 2 - 1) * fw, lz = (rnd() * 2 - 1) * fd;
-        const edge = Math.max(Math.abs(lx) / (fw || 1), Math.abs(lz) / (fd || 1));
-        out.x = cx + lx * cos + lz * sin; out.z = cz - lx * sin + lz * cos;
-        out.y = gy + (b.ruined ? 0.05 + rnd() * 0.15 : h * (0.5 + 0.42 * (1 - edge)));
-        return out;
-      };
+      const P = this.puffs, S = this.fx.sparks, foot = R3.Models.FOOT[b.type] || NO_FOOT;
+      const cx = st.cx, cz = st.cz, gy = st.gy, h = b.ruined ? 0.22 : st.h;
       if (I > 0) {
         for (st.fA += dt * (8 + 18 * I); st.fA >= 1; st.fA--) {
-          spot(_p);
+          this.spot(b, st, foot, _p);
           const s0 = (0.16 + 0.16 * I) * (0.7 + rnd() * 0.6);
           P.spawn(_p.x, _p.y - s0 * 0.25, _p.z, (rnd() - 0.5) * 0.06, 0.35 + rnd() * 0.3, (rnd() - 0.5) * 0.06, 0.45 + rnd() * 0.3, s0, s0 * 0.45, FIRE, 0.95, FIRE_END, 0, true);
         }
         for (st.eA += dt * (1 + 4 * I); st.eA >= 1; st.eA--) {
-          spot(_p);
+          this.spot(b, st, foot, _p);
           S.spawn(_p.x, _p.y + 0.1, _p.z, (rnd() - 0.5) * 0.35, 0.6 + rnd() * 0.7, (rnd() - 0.5) * 0.35, 1 + rnd() * 0.8, 0.045, 0.025, EMBER, 1, EMBER_END, 0.35);
         }
         const fl = 0.88 + Math.sin(t * 13 + b.id) * 0.07 + Math.sin(t * 29 + b.id * 3) * 0.05;
@@ -152,14 +155,24 @@ window.R3 = window.R3 || {};
       } else if (b.ruined && b.rebuild <= 0) {
         const fl = 0.8 + Math.sin(t * 2.3 + b.id) * 0.2;
         this.fx.glow.add(cx, gy + 0.03, cz, Math.max(foot[0], foot[1]) * 2 + 0.3, GLOW, 0.16 * fl);
-        if ((st.eA += dt * 0.6) >= 1) { st.eA = 0; spot(_p); S.spawn(_p.x, _p.y, _p.z, (rnd() - 0.5) * 0.2, 0.4 + rnd() * 0.3, (rnd() - 0.5) * 0.2, 0.8, 0.04, 0.02, EMBER, 1, EMBER_END, 0.3); }
+        if ((st.eA += dt * 0.6) >= 1) { st.eA = 0; this.spot(b, st, foot, _p); S.spawn(_p.x, _p.y, _p.z, (rnd() - 0.5) * 0.2, 0.4 + rnd() * 0.3, (rnd() - 0.5) * 0.2, 0.8, 0.04, 0.02, EMBER, 1, EMBER_END, 0.3); }
       }
       for (st.sA += dt * smoke; st.sA >= 1; st.sA--) {
-        spot(_p);
+        this.spot(b, st, foot, _p);
         const big = I > 0 ? 0.38 + 0.22 * I : 0.3;
         P.spawn(cx + (_p.x - cx) * 0.6, _p.y + (I > 0 ? 0.12 : 0.02), cz + (_p.z - cz) * 0.6, (rnd() - 0.5) * 0.05, (0.38 + rnd() * 0.18) * lift, (rnd() - 0.5) * 0.05,
           2.4 + rnd() * 0.9, 0.12, big * (0.8 + rnd() * 0.4), smokeCol, I > 0 ? 0.52 : 0.4, SMOKE_GREY);
       }
+    }
+
+    // A random spot on the roof (or among the rubble) for a flame, ember or puff of smoke.
+    spot(b, st, foot, out) {
+      const fw = foot[0] * 0.8, fd = foot[1] * 0.8;
+      const lx = (rnd() * 2 - 1) * fw, lz = (rnd() * 2 - 1) * fd;
+      const edge = Math.max(Math.abs(lx) / (fw || 1), Math.abs(lz) / (fd || 1));
+      out.x = wx(st, lx, lz); out.z = wz(st, lx, lz);
+      out.y = st.gy + (b.ruined ? 0.05 + rnd() * 0.15 : st.h * (0.5 + 0.42 * (1 - edge)));
+      return out;
     }
 
     sync(dt) {
@@ -168,7 +181,7 @@ window.R3 = window.R3 || {};
       const t = this.time;
       this.byTile.clear();
       for (const b of G.buildings) this.byTile.set(b.y * MAP_W + b.x, b);
-      for (const bt of this.batches.values()) bt.n = 0;
+      let dirty = this.initial;
       let nf = 0, ns = 0;
       for (const b of G.buildings) {
         const model = this.modelFor(b), tier = R3.Models.tierOf(b.type, b.lvl);
@@ -185,31 +198,30 @@ window.R3 = window.R3 || {};
           else if (st.tier !== tier && !b.ruined) { st.pop = 0; this.puffs.burst(cx, gy, cz, 0.36, 8, T.dust); }
         }
         st.ruined = b.ruined; st.tier = tier; st.h = model.height; st.frame = f; st.cx = cx; st.gy = gy; st.cz = cz;
+        st.id = b.id; st.cos = Math.cos(st.rot); st.sin = Math.sin(st.rot);
         st.t += dt; st.pop += dt; st.ruinT += dt;
 
         // construction: rise from the ground and settle with a little overshoot
         let sx = 1, sy = 1;
         if (st.t < BUILD_TIME) { const k = easeOutBack(Math.min(1, st.t / BUILD_TIME)); sy = Math.max(0.02, k); sx = 0.6 + 0.4 * k; }
         if (st.pop < 0.45) { const k = Math.sin(st.pop / 0.45 * Math.PI) * 0.09; sx *= 1 + k; sy *= 1 + k; }
-        _q.setFromAxisAngle(UP, st.rot); _s.set(sx, sy, sx); _p.set(cx, gy, cz);
-        _m.compose(_p, _q, _s);
-        // damage blackens the walls; a hit flashes
+        // damage blackens the walls (in steps, so a slow bleed doesn't re-upload every frame); a hit flashes
         const dmg = b.ruined ? 0 : Math.max(0, Math.min(1, 1 - b.hp / (b.maxHp || 1)));
-        const ch = 1 - Math.min(0.6, dmg * 0.72);
-        _c.setRGB(ch, ch * 0.94, ch * 0.9);
-        if (b.flash > 0) _c.setRGB(1.6, 0.75, 0.6);
-        this.batch(model).add(_m, _c);
+        const chQ = Math.round(dmg * 40), fl = b.flash > 0;
+        if (sx !== st.sx || sy !== st.sy || chQ !== st.chQ || fl !== st.fl || model !== st.drawn || gy !== st.dgy) {
+          st.sx = sx; st.sy = sy; st.chQ = chQ; st.fl = fl; st.drawn = model; st.dgy = gy;
+          dirty = true;
+        }
         this.fire(b, st, model, dmg, dt, t);
 
         // animated extras on finished, standing buildings
         if (!b.ruined && st.t >= BUILD_TIME) {
-          const cos = Math.cos(st.rot), sin = Math.sin(st.rot);
-          const wx = (x, z) => cx + x * cos + z * sin, wz = (x, z) => cz - x * sin + z * cos;
+          const cos = st.cos, sin = st.sin;
           for (const fl of model.flags) {
             if (nf >= 64) break;
             _q.setFromAxisAngle(UP, st.rot + 0.6 + Math.sin(t * 2.6 + b.id + fl[0] * 9) * 0.35);
             const wave = 1 + Math.sin(t * 7 + b.id) * 0.06;
-            _s.set(fl[3] * wave, fl[3], fl[3]); _p.set(wx(fl[0], fl[2]), gy + fl[1], wz(fl[0], fl[2]));
+            _s.set(fl[3] * wave, fl[3], fl[3]); _p.set(wx(st, fl[0], fl[2]), gy + fl[1], wz(st, fl[0], fl[2]));
             _m.compose(_p, _q, _s);
             this.flags.setMatrixAt(nf, _m);
             this.flags.setColorAt(nf, _c.setHex(b.type === 'barracks' ? T.banner : b.type === 'market' ? T.produce[(nf + b.id) % 4] : T.player));
@@ -219,14 +231,14 @@ window.R3 = window.R3 || {};
             if (ns >= 32) break;
             const k = Math.sin(t * 7 + b.id);
             _q.setFromAxisAngle(UP, st.rot + Math.PI / 2);
-            _s.set(1, 1, 1); _p.set(wx(sw[0], sw[2] + k * 0.05), gy + sw[1] + Math.abs(k) * 0.015, wz(sw[0], sw[2] + k * 0.05));
+            _s.set(1, 1, 1); _p.set(wx(st, sw[0], sw[2] + k * 0.05), gy + sw[1] + Math.abs(k) * 0.015, wz(st, sw[0], sw[2] + k * 0.05));
             _m.compose(_p, _q, _s);
             this.saws.setMatrixAt(ns, _m); this.saws.setColorAt(ns, _w);
             ns++;
           }
           if (model.smoke.length && st.burn < 0.05 && (st.smoke -= dt) <= 0) {
             st.smoke = 0.9 + Math.random() * 0.8;
-            for (const sm of model.smoke) this.puffs.spawn(wx(sm[0], sm[2]), gy + sm[1], wz(sm[0], sm[2]), 0.03, 0.22, 0.02, 2.0, 0.035, 0.11, T.smoke, 0.55);
+            for (const sm of model.smoke) this.puffs.spawn(wx(st, sm[0], sm[2]), gy + sm[1], wz(st, sm[0], sm[2]), 0.03, 0.22, 0.02, 2.0, 0.035, 0.11, T.smoke, 0.55);
           }
           // lit doors and windows at dusk
           if (this.dusk && model.lights.length && st.burn < 0.5) {
@@ -236,19 +248,34 @@ window.R3 = window.R3 || {};
               // only windows that face the camera
               const facing = ((L[5] * cos + L[6] * sin) * vx + (-L[5] * sin + L[6] * cos) * vz) / vl;
               if (facing <= 0.05) continue;
-              this.fx.lights.add(wx(L[0], L[2]), gy + L[1], wz(L[0], L[2]), L[3], WINDOW, 0.85 * L[4] * flick * Math.min(1, facing * 3));
+              this.fx.lights.add(wx(st, L[0], L[2]), gy + L[1], wz(st, L[0], L[2]), L[3], WINDOW, 0.85 * L[4] * flick * Math.min(1, facing * 3));
             }
           }
         }
       }
-      for (const bt of this.batches.values()) bt.end();
+      // demolished: a puff of dust where it stood
+      for (const st of this.state.values()) if (st.frame !== f) {
+        this.puffs.burst(st.cx, st.gy, st.cz, 0.36, 10, T.dust);
+        this.state.delete(st.id);
+        dirty = true;
+      }
+      // Instance buffers are only rewritten when a building appeared, went, changed shape or
+      // colour, or is animating; a quiet settlement uploads nothing.
+      if (dirty) {
+        for (const bt of this.batches.values()) bt.n = 0;
+        for (const b of G.buildings) {
+          const st = this.state.get(b.id);
+          _q.setFromAxisAngle(UP, st.rot); _s.set(st.sx, st.sy, st.sx); _p.set(st.cx, st.gy, st.cz);
+          _m.compose(_p, _q, _s);
+          const ch = 1 - Math.min(0.6, st.chQ / 40 * 0.72);
+          if (st.fl) _c.setRGB(1.6, 0.75, 0.6); else _c.setRGB(ch, ch * 0.94, ch * 0.9);
+          this.batch(st.drawn).add(_m, _c);
+        }
+        for (const bt of this.batches.values()) bt.end();
+        this.uploads++;
+      }
       this.flags.count = nf; this.flags.visible = nf > 0; this.flags.instanceMatrix.needsUpdate = true; if (this.flags.instanceColor) this.flags.instanceColor.needsUpdate = true;
       this.saws.count = ns; this.saws.visible = ns > 0; this.saws.instanceMatrix.needsUpdate = true;
-      // demolished: a puff of dust where it stood
-      for (const [id, st] of this.state) if (st.frame !== f) {
-        this.puffs.burst(st.cx, st.gy, st.cz, 0.36, 10, T.dust);
-        this.state.delete(id);
-      }
       this.initial = false;
     }
     clear() {

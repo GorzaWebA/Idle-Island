@@ -63,7 +63,7 @@ window.R3 = window.R3 || {};
   }
   const AUTO_WARM = 1, AUTO_WINDOW = 5;
   const SUN_SWING = 0.32, SUN_PERIOD = 720;    // the sun's slow drift: radians either way, seconds
-  const _sun = new THREE.Vector3();
+  const _sun = new THREE.Vector3(), _pm = new THREE.Matrix4(), _frustum = new THREE.Frustum();
 
   const view = {
     kind: '3d', canvas: null, stage: null,
@@ -287,6 +287,9 @@ window.R3 = window.R3 || {};
       this.sea.update(this.time);
       if ((this.sunT = (this.sunT || 0) - dt) <= 0) { this.sunT = 0.5; this.fitSun(this.bounds, this.sunAngle()); }
       this.weather(dt);
+      this.camera.updateMatrixWorld();
+      _frustum.setFromProjectionMatrix(_pm.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse));
+      this.units.cull = this.cullUnits === false ? null : _frustum;
       this.glow.begin(); this.lights.begin();
       this.buildings.eye.copy(this.camera.position);
       this.buildings.sync(dt);
