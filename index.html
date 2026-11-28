@@ -23,6 +23,9 @@
 <div id="app">
   <header class="topbar">
     <div class="brand">
+      <button class="menu-btn" data-act="menu" id="menu-btn" aria-label="Menu" title="Menu">
+        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 5.5h14M3 10h14M3 14.5h14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+      </button>
       <span class="brand-name">Idle Island</span>
       <span class="trait-chip" id="trait-chip" title=""></span>
     </div>
@@ -98,6 +101,10 @@
     </aside>
   </main>
 
+  <div class="menu" id="menu" role="dialog" aria-modal="true" aria-labelledby="menu-title" hidden>
+    <div class="menu-veil"></div>
+    <div class="menu-card" id="menu-card"></div>
+  </div>
   <div class="modal-veil" id="modal" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <h2 id="modal-title"></h2>
@@ -133,6 +140,7 @@
 <script src="js/r3d/hud.js"></script>
 <script src="js/render3d.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/menu.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

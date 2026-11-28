@@ -62,7 +62,13 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
   background: var(--surface); border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
-.brand-name { font-family: var(--font-display); font-weight: 700; font-size: 26px; letter-spacing: 0.01em; line-height: 1; }
+.menu-btn {
+  align-self: center; display: grid; place-items: center; flex: none; width: 34px; min-width: 34px; height: 34px; padding: 0; margin-right: -2px;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); cursor: pointer;
+}
+.menu-btn:hover { border-color: var(--ink); }
+.menu-btn svg { display: block; }
+.brand-name { font-family: var(--font-display); font-weight: 700; font-size: 26px; letter-spacing: 0.01em; line-height: 1; white-space: nowrap; }
 .trait-chip {
   font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
   white-space: nowrap;
@@ -407,4 +413,71 @@ kbd { font: 600 12px var(--font-ui); border: 1px solid var(--line); border-botto
 }
 @media (prefers-reduced-motion: reduce) {
   .stage-banner { animation: none; }
+}
+
+/* ---------- title menu ----------
+   While it is up the map fills the screen (the island turns slowly behind the card) and the rest
+   of the interface steps aside. */
+body.menu-open .topbar, body.menu-open .panel, body.menu-open .stage-mode, body.menu-open .stage-zoom,
+body.menu-open .stage-hover, body.menu-open .stage-banner, body.menu-open .stage-paused, body.menu-open .hud,
+body.menu-open .floaters, body.menu-open .ghost-chip, body.menu-open .perf-hud { display: none !important; }
+body.menu-open #app { display: block; height: 100%; }
+body.menu-open .layout { display: block; height: 100%; }
+body.menu-open .stage { height: 100% !important; }
+body.menu-open .stage.is-3d::after { display: none; }
+.menu { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; padding: 32px max(48px, 5vw); }
+.menu[hidden] { display: none; }
+.menu-veil { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, rgba(10, 22, 28, 0.88) 0%, rgba(10, 22, 28, 0.55) 34%, rgba(10, 22, 28, 0) 58%); }
+.menu-card {
+  position: relative; width: min(400px, 100%); max-height: 100%; display: flex; flex-direction: column; gap: 14px;
+  color: #f4ecd8;
+}
+.menu-title { margin: 0; font: 700 clamp(52px, 7vw, 88px)/0.9 var(--font-display); letter-spacing: 0.005em; text-shadow: 0 3px 0 rgba(0, 0, 0, 0.25); }
+.menu-tag { margin: 0 0 8px; font-size: 19px; color: #d9e6e6; }
+.menu-actions { display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
+.menu-actions .btn { justify-content: flex-start; min-height: 46px; padding: 10px 16px; font-size: 16px; background: rgba(20, 34, 40, 0.72); color: #f4ecd8; border-color: rgba(244, 236, 216, 0.28); }
+.menu-actions .btn:hover:not(:disabled) { border-color: #f4ecd8; background: rgba(20, 34, 40, 0.9); }
+.menu-actions .btn-primary { flex-direction: column; align-items: flex-start; gap: 2px; background: #dcaa47; color: #1a1306; border-color: #dcaa47; font-size: 18px; }
+.menu-actions .btn-primary:hover:not(:disabled) { background: #e8b955; border-color: #e8b955; }
+.menu-actions .btn-primary small { font-size: 13px; font-weight: 600; opacity: 0.78; white-space: normal; text-align: left; }
+.menu-actions .btn-quiet { background: transparent; border-color: transparent; color: #c9c0aa; font-size: 14px; min-height: 38px; }
+.menu-actions .btn-danger { background: #a8362a; border-color: #a8362a; color: #fff1ea; }
+.menu-foot { margin: 4px 0 0; font-size: 13px; color: #b9c4c4; }
+.menu-text { margin: 0; color: #e6e0d0; line-height: 1.45; }
+.menu-confirm-title { margin: 0; font: 700 34px/1 var(--font-display); }
+.menu-sub { display: flex; align-items: center; gap: 12px; }
+.menu-sub h2 { margin: 0; font: 700 30px/1 var(--font-display); }
+.menu-sub .btn { background: rgba(20, 34, 40, 0.72); color: #f4ecd8; border-color: rgba(244, 236, 216, 0.28); }
+.menu-scroll { overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 12px; min-height: 0; padding-right: 4px; }
+.menu-card[data-view="settings"], .menu-card[data-view="help"] { width: min(460px, 100%); height: 100%; }
+.menu-card[data-view="settings"] .card { background: var(--surface); color: var(--ink); }
+.menu-help { background: rgba(10, 22, 28, 0.82); border: 1px solid rgba(244, 236, 216, 0.14); border-radius: var(--radius); padding: 14px 16px; }
+.menu-help p { margin: 0; line-height: 1.45; color: #e6e0d0; }
+.menu-help b { color: #f3cf74; }
+.menu-help .note { color: #b9c4c4; }
+@media (max-width: 760px) and (orientation: portrait), (max-width: 600px) {
+  /* upright phones: the island above, the menu as a sheet below */
+  .menu { align-items: flex-end; padding: 16px max(16px, env(safe-area-inset-left, 0px)) max(18px, env(safe-area-inset-bottom, 0px)); }
+  .menu-veil { background: linear-gradient(0deg, rgba(10, 22, 28, 0.92) 0%, rgba(10, 22, 28, 0.7) 40%, rgba(10, 22, 28, 0) 66%); }
+  .menu-card { width: 100%; max-height: 72%; }
+  .menu-card[data-view="settings"], .menu-card[data-view="help"] { height: 86%; max-height: 86%; }
+  .menu-title { font-size: 54px; }
+  .menu-tag { font-size: 16px; margin-bottom: 4px; }
+}
+@media (max-height: 520px) and (orientation: landscape) {
+  .menu { padding: 12px 24px; }
+  .menu-title { font-size: 44px; }
+  .menu-tag { font-size: 15px; margin-bottom: 0; }
+  .menu-card { gap: 10px; }
+  .menu-actions { gap: 7px; }
+  .menu-actions .btn { min-height: 40px; padding: 7px 14px; }
+  .menu-foot { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .menu-card { animation: none; } }
+@media (max-width: 400px) {
+  .brand { gap: 8px; align-items: center; }
+  .brand-name { font-size: 19px; }
+}
+@media (max-width: 340px) {
+  .brand-name { white-space: normal; font-size: 18px; line-height: 0.95; }
 }

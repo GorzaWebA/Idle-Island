@@ -203,7 +203,7 @@ window.R3 = window.R3 || {};
     healthBars(sz) {
       const B = this.bars;
       B.begin(sz.w, sz.h);
-      const on = typeof SETTINGS === 'undefined' || SETTINGS.healthBars;
+      const on = (typeof SETTINGS === 'undefined' || SETTINGS.healthBars) && !this.view.rig.showcase;
       if (on && typeof RT !== 'undefined' && RT) {
         const battle = RT.phase !== 'countdown';
         for (const b of G.buildings) {

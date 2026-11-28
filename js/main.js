@@ -38,10 +38,12 @@ function start(data) {
   initUI();
   if (typeof AUDIO !== 'undefined') AUDIO.init();
   if (chosen.fellBack) setBanner('Classic map', 'This browser can\'t show the 3D island, so the flat map is shown instead.', 'bad');
+  MENU.hadSave = loaded;
+  if (menuWanted()) openMenu('main');
 
   if (loaded && !(data && data.save)) {
     const away = (Date.now() - G.lastSave) / 1000;
-    if (away > 60) showOffline(applyOffline(away));
+    if (away > 60) { const g = applyOffline(away); afterMenu(() => showOffline(g)); }
   }
 
   const onResize = () => VIEW.resize();
@@ -55,7 +57,7 @@ function start(data) {
     else if (hiddenAt) {
       const gap = (Date.now() - hiddenAt) / 1000;
       hiddenAt = 0;
-      if (gap > 30) { const g = applyOffline(gap); if (gap > 120) showOffline(g); }
+      if (gap > 30) { const g = applyOffline(gap); if (gap > 120) afterMenu(() => showOffline(g)); }
     }
   });
   window.addEventListener('pagehide', saveGame);
@@ -66,7 +68,7 @@ function start(data) {
   function frame(now) {
     let dt = (now - last) / 1000; last = now;
     dt = Math.min(Math.max(dt, 0), 0.25);
-    if (!G.paused) {
+    if (!G.paused && !UI.menu) {          // the title menu holds the game still
       acc += dt * G.speed;
       let n = 0;
       while (acc >= STEP && n < 30) { VIEW.beforeStep(); step(STEP); acc -= STEP; n++; }
@@ -74,7 +76,7 @@ function start(data) {
     }
     // nothing is drawn while the tab is hidden (browsers also stop calling us; the sim's
     // offline catch-up covers the time away)
-    if (!document.hidden) VIEW.frame(dt, G.paused ? 1 : acc / STEP);
+    if (!document.hidden) VIEW.frame(dt, G.paused || UI.menu ? 1 : acc / STEP);
     if (typeof AUDIO !== 'undefined') AUDIO.update(dt);
     headerT -= dt;
     if (headerT <= 0) { headerT = 0.08; updateHeader(); }     // ~12 times a second is plenty for text

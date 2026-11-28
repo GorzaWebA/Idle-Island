@@ -224,7 +224,7 @@ window.R3 = window.R3 || {};
     },
 
     applyTheme() {
-      const th = this.theme();
+      const th = this.themeNow = this.theme();
       this.scene.background = new THREE.Color(th.sky);
       this.foggy = !!th.foggy;
       this.scene.fog.color.setHex(th.fog); this.scene.fog.near = th.fogNear; this.scene.fog.far = th.fogFar;
@@ -242,11 +242,17 @@ window.R3 = window.R3 || {};
     /* Fogbound: fog that closes in around the camera (so zooming in clears the view a little)
        and banks of mist drifting over the water. */
     weather(dt) {
+      // Fog follows the camera: Fogbound closes it in; elsewhere it only ever moves further out,
+      // so a camera pulled far back (an upright phone's full-screen menu) never loses the island.
+      const d = this.rig.dist, th = this.themeNow || (this.themeNow = this.theme());
+      const near = this.foggy ? d * 0.75 + 2 : Math.max(th.fogNear, d + 4);
+      const far = this.foggy ? d * 1.9 + 9 : Math.max(th.fogFar, d * 1.6 + 24);
+      if (Math.abs(near - this.scene.fog.near) > 0.25 || Math.abs(far - this.scene.fog.far) > 0.25) {
+        this.scene.fog.near = near; this.scene.fog.far = far;
+        this.sea.setFog(near, far);
+        for (const k of ['puffs', 'sparks', 'foam', 'glow', 'lights']) this.fx[k].setFog(near, far);
+      }
       if (!this.foggy) return;
-      const d = this.rig.dist, near = d * 0.75 + 2, far = d * 1.9 + 9;
-      this.scene.fog.near = near; this.scene.fog.far = far;
-      this.sea.setFog(near, far);
-      for (const k of ['puffs', 'sparks', 'foam', 'glow', 'lights']) this.fx[k].setFog(near, far);
       if (this.mist.n < MIST && (this.mistT = (this.mistT || 0) - dt) <= 0) {
         this.mistT = 0.4;
         const b = this.bounds, rx = (b.x1 - b.x0) / 2 + 3, rz = (b.z1 - b.z0) / 2 + 3;
@@ -332,6 +338,21 @@ window.R3 = window.R3 || {};
       return { x: o.x, y: o.y };
     },
 
+    // Title menu: the camera circles the island slowly, offset to leave room for the menu card
+    // (beside it on wide screens, below it on upright phones).
+    setShowcase(on) {
+      const r = this.rig;
+      if (on) {
+        this.resize(); r.computeFit();
+        const w = this.stage.clientWidth, h = this.stage.clientHeight, wide = w / Math.max(1, h) > 1.1;
+        r.showcase = wide ? { x: w > 900 ? 0.17 : 0.2, y: 0 } : { x: 0, y: 0.2 };
+        // upright: the island may run off the sides; it's a backdrop, so fill the view with it
+        r.gPitch = 0.62; r.gDist = wide ? r.fitDist * 0.95 : Math.min(r.fitDist * 0.75, 42); r.slowT = 2.5;
+      } else {
+        r.showcase = null;
+        this.resize(); r.recentre(false); r.slowT = 1.2;
+      }
+    },
     zoomBy(f) { this.rig.zoomBy(f); },
     canZoomOut() { return this.rig.canZoomOut(); },
     recentre() { this.rig.recentre(false); },

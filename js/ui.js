@@ -2,7 +2,7 @@
 /* DOM interface: header, tabbed panel, map input. */
 
 const UI = {
-  tab: 'build', placing: null, selB: null, selSq: null, hover: null,
+  tab: 'build', placing: null, selB: null, selSq: null, hover: null, menu: false,
   confirm: null, exportStr: '', importMsg: '', toast: null, panelT: 0,
   pending: null, lastPointer: null
 };
@@ -408,6 +408,7 @@ function hoverText() {
   const t = tileType(hv.x, hv.y);
   if (t === T_WATER && !UI.placing) return '';
   let s = TILE_NAME[t];
+  if (isRamp(hv.x, hv.y)) s = 'Slope up to the highland';
   if (hasTree(hv.x, hv.y)) s += ' · Forest';
   if (isLandingTile(hv.x, hv.y)) s += ' · Boats land here';
   const b = buildingAtTile(hv.x, hv.y);
@@ -476,6 +477,7 @@ function onCanvasClick(mx, my) {
 }
 
 function doAction(act, arg, ev) {
+  if (typeof menuAction === 'function' && menuAction(act, arg)) { renderPanel(); updateHeader(); return; }
   switch (act) {
     case 'tab': UI.tab = arg; UI.confirm = null; break;
     case 'build': UI.placing = UI.placing === arg ? null : arg; UI.pending = null; UI.selB = null; UI.selSq = null; break;
@@ -544,6 +546,7 @@ function doAction(act, arg, ev) {
   }
   renderPanel();
   updateHeader();
+  if (UI.menu && typeof renderMenu === 'function') renderMenu();
 }
 
 function showModal(title, html) {
@@ -647,6 +650,10 @@ function initUI() {
     if (tag === 'TEXTAREA' || tag === 'INPUT') return;
     if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('[data-act]:not(button)')) {
       e.preventDefault(); doAction(e.target.dataset.act, e.target.dataset.arg, e); return;
+    }
+    if (UI.menu) {                 // the title menu: Esc steps back, then continues
+      if (e.key === 'Escape') { if (MENU.view !== 'main') doAction('menu-view', 'main'); else doAction('menu-play'); }
+      return;
     }
     if (e.key === 'Escape') { cancelModes(); UI.selB = null; if (!$('modal').hidden) $('modal').hidden = true; renderPanel(); }
     else if (e.key === ' ') { e.preventDefault(); G.paused = !G.paused; }

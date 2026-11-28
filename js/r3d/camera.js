@@ -20,6 +20,7 @@ window.R3 = window.R3 || {};
       this.groundPick = null;     // (mx, my) -> Vector3 on the ground, set by the renderer
       this._v = new THREE.Vector3(); this._w = new THREE.Vector3();
       this.shakeAmp = 0; this.slowT = 0;
+      this.showcase = null;      // { x, y } screen offsets while the title menu is up
       this.reducedMotion = false;
       // the player's Settings choice, or the system's
       const reduced = () => (typeof prefersReducedMotion === 'function' ? prefersReducedMotion() : window.matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -138,7 +139,14 @@ window.R3 = window.R3 || {};
       }
       this.idle += dt;
       if (this.autoRotate && this.idle > IDLE_ROTATE_AFTER && !this.pointers.size) this.gYaw += dt * 0.06;
-      if (this.idle < 0.05) this.slowT = 0;          // any input takes over at once
+      if (this.showcase) {
+        // title menu: circle the island slowly, offset so the menu card doesn't hide it
+        const b = this.bounds, cam = this.camera, sh = this.showcase;
+        const w = 2 * this.gDist * Math.tan(cam.fov * Math.PI / 360) * cam.aspect, hgt = w / cam.aspect / Math.max(0.3, Math.sin(this.gPitch));
+        if (!this.reducedMotion) this.gYaw += dt * 0.05;
+        this.goal.set(b.cx - Math.cos(this.yaw) * w * sh.x + Math.sin(this.yaw) * hgt * sh.y, 0.3, b.cz + Math.sin(this.yaw) * w * sh.x + Math.cos(this.yaw) * hgt * sh.y);
+        this.idle = 0;
+      } else if (this.idle < 0.05) this.slowT = 0;          // any input takes over at once
       const a = 1 - Math.exp(-dt * (this.slowT > 0 ? 1.6 : 10));
       if (this.slowT > 0) this.slowT -= dt;
       this.target.lerp(this.goal, a);
