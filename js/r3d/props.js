@@ -131,6 +131,15 @@ window.R3 = window.R3 || {};
     const landing = new Set(MAP.landings.map(l => l.wy * MAP_W + l.wx));
     for (let tz = 0; tz < MAP_H; tz++) for (let tx = 0; tx < MAP_W; tx++) {
       const t = tileType(tx, tz), tile = tz * MAP_W + tx;
+      if (isRamp(tx, tz)) {
+        // a slope is a path: timber steps across it, nothing else
+        const d = rampDir(tx, tz), sx = DIR4[d][0], sz = DIR4[d][1];
+        for (let k = 0; k < 4; k++) {
+          const along = 0.14 + k * 0.24 - 0.5, x = tx + 0.5 + sx * along, z = tz + 0.5 + sz * along;
+          logs.push({ x, y: H(x, z) + 0.012, z, sx: 0.5, sy: 0.022, sz: 0.022, ry: sx !== 0 ? Math.PI / 2 : 0, col: k % 2 ? T.plank : T.log, tint: 0.85 + h(x, 70 + k, z) * 0.2, tile });
+        }
+        continue;
+      }
       if (t === T_WATER) {
         // the odd sea stack off a cliff coast (never near a beach or landing)
         let cliff = false, sand = false;

@@ -15,9 +15,12 @@ window.R3 = window.R3 || {};
     for (let dz = -1; dz <= 0; dz++) for (let dx = -1; dx <= 0; dx++) if (tileType(gx + dx, gz + dz) === T_WATER) return SAND_LO;
     return SAND_HI;
   }
+  // How far up a slope tile a local point is (0 at its foot, 1 where it meets the highland).
+  function slopeK(d, fx, fz) { const dx = DIR4[d][0], dz = DIR4[d][1]; return dx > 0 ? fx : dx < 0 ? 1 - fx : dz > 0 ? fz : 1 - fz; }
   // Height of tile (tx,tz) at local point (fx,fz) in [0,1].
   function tileHeight(tx, tz, fx, fz) {
-    const t = tileType(tx, tz);
+    const t = tileType(tx, tz), d = rampDir(tx, tz);
+    if (d >= 0) return GRASS + (HIGH - GRASS) * slopeK(d, fx, fz);     // a slope up to the highland
     if (t !== T_SAND) return flatH(t);
     const h00 = sandCorner(tx, tz), h10 = sandCorner(tx + 1, tz), h01 = sandCorner(tx, tz + 1), h11 = sandCorner(tx + 1, tz + 1);
     return (h00 * (1 - fx) + h10 * fx) * (1 - fz) + (h01 * (1 - fx) + h11 * fx) * fz;
@@ -33,6 +36,7 @@ window.R3 = window.R3 || {};
     const t = tileType(tx, tz);
     if (t === T_WATER) return 0;
     if (t === T_SAND) return Math.max(sandCorner(tx, tz), sandCorner(tx + 1, tz), sandCorner(tx, tz + 1), sandCorner(tx + 1, tz + 1));
+    if (isRamp(tx, tz)) return HIGH;
     return flatH(t);
   }
   // Shared horizontal jitter of a grid point, so neighbouring faces always meet.
@@ -59,6 +63,13 @@ window.R3 = window.R3 || {};
       const topCol = (i, j, p) => {
         const x = tx + F[i], z = tz + F[j];
         let c;
+        const rd = rampDir(tx, tz);
+        if (rd >= 0) {
+          // a worn earth track up the middle of the slope, grass at its edges
+          const across = DIR4[rd][0] !== 0 ? F[j] : F[i];
+          const grass = R3.mixCol(T.grass, T.grassDark, 0.35 + R3.hash3(x, 5, z) * 0.3);
+          return across === 0.5 ? tint(T.path, x, 6, z, 0.08) : R3.mixCol(grass, T.path, 0.45);
+        }
         if (t === T_SAND) c = p[1] < 0.04 ? R3.mixCol(T.sand, T.sandWet, 0.75) : tint(T.sand, x, 1, z, 0.08);
         else if (t === T_GRASS) c = R3.mixCol(T.grass, R3.hash3(x, 2, z) > 0.5 ? T.grassLight : T.grassDark, R3.hash3(x, 3, z) * 0.55);
         else c = R3.mixCol(T.high, T.highDark, R3.hash3(x, 4, z) * 0.45);

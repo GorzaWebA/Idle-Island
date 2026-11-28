@@ -144,6 +144,19 @@ function buildTerrain() {
       const west = tileType(x - 1, y), east = tileType(x + 1, y);
       if (VH[west] < h) { c.fillStyle = 'rgba(0,0,0,0.10)'; c.fillRect(X, Y, 1.5, TH); }
       if (VH[east] < h) { c.fillStyle = 'rgba(0,0,0,0.16)'; c.fillRect(X + T - 1, Y, 1.5, TH); }
+      // a slope up to the highland: a ramp of steps rising towards it
+      const rd = rampDir(x, y);
+      if (rd >= 0) {
+        const dx = DIR4[rd][0], dy = DIR4[rd][1];
+        c.fillStyle = 'rgba(176,140,90,0.55)'; c.fillRect(X + 2, Y + 2, T - 3, TH - 3);
+        c.fillStyle = 'rgba(90,60,30,0.55)';
+        for (let k = 1; k <= 4; k++) {
+          const f = k / 5;
+          if (dx !== 0) c.fillRect(X + (dx > 0 ? f : 1 - f) * T - 1, Y + 2, 2, TH - 3);
+          else c.fillRect(X + 2, Y + (dy > 0 ? f : 1 - f) * TH - 1, T - 3, 2);
+        }
+        continue;
+      }
       // texture specks
       for (let k = 0; k < 5; k++) {
         const px = X + hash2(x, y, 10 + k) * (T - 4) + 2, py = Y + hash2(x, y, 20 + k) * (TH - 4) + 2;

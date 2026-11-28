@@ -140,6 +140,7 @@ function canPlaceBasic(type, x, y) {
   if (t === T_WATER) return false;
   if (buildingAtTile(x, y)) return false;
   if (hasTree(x, y)) return false;
+  if (isRamp(x, y)) return false;
   if (t === T_SAND && type !== 'palisade') return false;
   if (type === 'palisade' && isLandingTile(x, y)) return false;
   if (type === 'lumber' && adjacentTrees(x, y) === 0) return false;
@@ -154,6 +155,7 @@ function placementCheck(type, x, y) {
   if (t === T_WATER) return { ok: false, reason: 'Cannot build on the sea' };
   if (buildingAtTile(x, y)) return { ok: false, reason: 'Tile is occupied' };
   if (hasTree(x, y)) return { ok: false, reason: 'Trees are in the way' };
+  if (isRamp(x, y)) return { ok: false, reason: 'Slopes must stay clear' };
   if (t === T_SAND && type !== 'palisade') return { ok: false, reason: 'Only palisades go on beaches' };
   if (type === 'palisade' && isLandingTile(x, y)) return { ok: false, reason: 'Boats land here' };
   if (type === 'lumber' && adjacentTrees(x, y) === 0) return { ok: false, reason: 'Must touch a tree' };
@@ -302,6 +304,9 @@ function deserialize(o) {
   G.buildings = [];
   for (const [type, x, y, lvl] of o.buildings || []) if (BUILDINGS[type]) addBuilding(type, x, y, lvl);
   if (!hallBuilding()) addBuilding('hall', MAP.hall.x, MAP.hall.y, 1);
+  // Saves from before slopes existed may have a building where a slope now goes: lay the
+  // slopes out again round those buildings.
+  if (G.buildings.some(b => isRamp(b.x, b.y))) MAP = generateIsland(G.island.seed, G.island.trait, new Set(G.buildings.map(b => tIdx(b.x, b.y))));
   G.squads = [];
   for (const q of o.squads || []) {
     G.squads.push({ id: G.nextId++, name: q.name, trait: q.trait, cls: CLASSES[q.cls] ? q.cls : 'militia', lvl: Math.max(1, q.lvl | 0), mode: q.mode === 'hold' ? 'hold' : 'auto', hold: q.hold || null, kills: q.kills || 0 });

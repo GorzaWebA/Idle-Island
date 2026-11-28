@@ -70,11 +70,36 @@ function stepCost(from, to, diag) {
   if (b && b.type === 'palisade' && !b.ruined) c += 7;
   return c;
 }
+// Tile-to-tile steps for path finding: land only, and highland only by its slopes.
 function canStep(x, y, dx, dy) {
-  if (!isLandTile(x + dx, y + dy)) return false;
-  if (dx !== 0 && dy !== 0 && (!isLandTile(x + dx, y) || !isLandTile(x, y + dy))) return false;
-  return true;
+  if (!inMap(x, y)) return stepOK(MAP, x, y, dx, dy);
+  return (MAP.steps[tIdx(x, y)] >> DIR8_INDEX[(dy + 1) * 3 + dx + 1] & 1) === 1;
 }
+
+// Can a walker move straight from point (x0, y0) to (x1, y1)? Same rules, for smooth movement.
+function canWalk(x0, y0, x1, y1) {
+  const ax = Math.floor(x0), ay = Math.floor(y0), bx = Math.floor(x1), by = Math.floor(y1);
+  if (!isLandTile(bx, by)) return false;
+  if (ax === bx && ay === by) return true;
+  if (!isLandTile(ax, ay)) return true;                        // wading ashore
+  const la = MAP.level[ay * MAP_W + ax], lb = MAP.level[by * MAP_W + bx];
+  if (la === lb && la !== 1) return true;                      // same level, no slope involved
+  const dx = bx - ax, dy = by - ay;
+  if (Math.abs(dx) + Math.abs(dy) === 1) return crossOK(MAP, tIdx(ax, ay), tIdx(bx, by));
+  if (Math.abs(dx) === 1 && Math.abs(dy) === 1) {
+    const a = tIdx(ax, ay), b = tIdx(bx, by), c = tIdx(bx, ay), e = tIdx(ax, by);
+    return (isLandTile(bx, ay) && crossOK(MAP, a, c) && crossOK(MAP, c, b)) || (isLandTile(ax, by) && crossOK(MAP, a, e) && crossOK(MAP, e, b));
+  }
+  return levelAt(ax, ay) === levelAt(bx, by);
+}
+// Knockback may throw a unit off a ledge or a slope (or into the sea), never up a cliff.
+function canFall(x0, y0, x1, y1) {
+  const ax = Math.floor(x0), ay = Math.floor(y0), bx = Math.floor(x1), by = Math.floor(y1);
+  if (!isLandTile(bx, by) || canWalk(x0, y0, x1, y1)) return true;
+  return levelAt(ax, ay) > levelAt(bx, by) || isRamp(ax, ay);
+}
+// Melee only between units on the same level; a unit on a slope can reach both.
+function sameLevel(a, b) { return Math.abs(levelAt(Math.floor(a.x), Math.floor(a.y)) - levelAt(Math.floor(b.x), Math.floor(b.y))) <= 1; }
 function computeFlow() {
   const W = MAP_W, N = W * MAP_H;
   const d = new Float32Array(N).fill(Infinity);
@@ -598,12 +623,24 @@ function moveToward(u, tx, ty, spd, dt, stopAt) {
   if (tileType(Math.floor(nx0), Math.floor(ny0)) === T_HIGH && tileType(ftx, fty) !== T_HIGH) v *= 0.65;
   if (v > d - s) v = d - s;
   const nx = u.x + dx / d * v, ny = u.y + dy / d * v;
-  if (isLandAt(nx, ny)) { u.x = nx; u.y = ny; }
-  else if (isLandAt(nx, u.y)) u.x = nx;
-  else if (isLandAt(u.x, ny)) u.y = ny;
+  if (canWalk(u.x, u.y, nx, ny)) { u.x = nx; u.y = ny; }
+  else if (canWalk(u.x, u.y, nx, u.y)) u.x = nx;
+  else if (canWalk(u.x, u.y, u.x, ny)) u.y = ny;
   if (Math.abs(dx) > 0.02) u.face = dx > 0 ? 1 : -1;
   u.walk += v;
   return true;
+}
+
+// Like moveToward, but a point on the other level is reached by walking round by a slope.
+function walkTo(u, tx, ty, spd, dt, stopAt) {
+  const ux = Math.floor(u.x), uy = Math.floor(u.y), gx = Math.floor(tx), gy = Math.floor(ty);
+  if (Math.abs(levelAt(ux, uy) - levelAt(gx, gy)) < 2 || !isLandTile(ux, uy) || !isLandTile(gx, gy)) { u.route = null; return moveToward(u, tx, ty, spd, dt, stopAt); }
+  const key = tIdx(gx, gy);
+  if (!u.route || u.routeKey !== key || (u.routeT -= dt) <= 0) { u.route = findPath(ux, uy, gx, gy); u.routeKey = key; u.routeT = 1.5; }
+  const r = u.route;
+  if (!r || !r.length) return moveToward(u, tx, ty, spd, dt, stopAt);
+  if (r.length > 1 && dist2(u.x, u.y, r[0].x, r[0].y) < 0.04) r.shift();
+  return moveToward(u, r[0].x, r[0].y, spd, dt, 0.05);
 }
 
 function knock(u, dx, dy, power) {
@@ -617,7 +654,11 @@ function updateUnits(dt) {
     if (u.flash > 0) u.flash -= dt;
     u.cdT -= dt;
     if (u.kbx || u.kby) {
-      u.x += u.kbx * dt; u.y += u.kby * dt;
+      const kx = u.x + u.kbx * dt, ky = u.y + u.kby * dt;
+      if (canFall(u.x, u.y, kx, ky)) { u.x = kx; u.y = ky; }
+      else if (canFall(u.x, u.y, kx, u.y)) { u.x = kx; u.kby = 0; }
+      else if (canFall(u.x, u.y, u.x, ky)) { u.y = ky; u.kbx = 0; }
+      else { u.kbx = 0; u.kby = 0; }                              // stopped by a cliff face
       const f = Math.pow(0.02, dt); u.kbx *= f; u.kby *= f;
       if (Math.abs(u.kbx) + Math.abs(u.kby) < 0.08) { u.kbx = 0; u.kby = 0; }
       if (!isLandAt(u.x, u.y)) { drown(u); continue; }
@@ -627,12 +668,13 @@ function updateUnits(dt) {
   }
 }
 
-function nearestFoe(u, side, maxD, cx, cy, cr) {
+function nearestFoe(u, side, maxD, cx, cy, cr, level) {
   let best = null, bd = maxD * maxD;
   for (const o of RT.units) {
     if (o.side !== side || !o.alive || o.fleeing) continue;
     const d = dist2(u.x, u.y, o.x, o.y);
     if (d >= bd) continue;
+    if (level && !sameLevel(u, o)) continue;
     if (cr !== undefined && dist2(o.x, o.y, cx, cy) > cr * cr && d > 0.64) continue;
     bd = d; best = o;
   }
@@ -643,8 +685,10 @@ function updateDefender(u, dt) {
   const sq = u.sq, st = sq.rt;
   const n = st.members.length;
   const [ox, oy] = slotOffset(u.slot, n);
-  const hx = st.ax + ox, hy = st.ay + oy;
-  if (st.retreating) { u.target = null; moveToward(u, hx, hy, u.speed * 1.1, dt); return; }
+  let hx = st.ax + ox, hy = st.ay + oy;
+  // a formation slot that falls over a cliff edge closes up on the commander's spot instead
+  if (Math.abs(levelAt(Math.floor(hx), Math.floor(hy)) - levelAt(Math.floor(st.ax), Math.floor(st.ay))) >= 2 || !isLandAt(hx, hy)) { hx = st.ax; hy = st.ay; }
+  if (st.retreating) { u.target = null; walkTo(u, hx, hy, u.speed * 1.1, dt); return; }
   if (u.ranged) {
     const range = u.range + (tileType(Math.floor(u.x), Math.floor(u.y)) === T_HIGH ? 1 : 0);
     let t = u.target;
@@ -652,20 +696,20 @@ function updateDefender(u, dt) {
     if (t) {
       u.face = t.x >= u.x ? 1 : -1;
       if (u.cdT <= 0) { shoot(u, t, u.dmg); u.cdT = u.cd * (0.9 + rand() * 0.2); }
-      if (dist2(u.x, u.y, hx, hy) > 2.5 * 2.5) moveToward(u, hx, hy, u.speed, dt);
-    } else moveToward(u, hx, hy, u.speed, dt);
+      if (dist2(u.x, u.y, hx, hy) > 2.5 * 2.5) walkTo(u, hx, hy, u.speed, dt);
+    } else walkTo(u, hx, hy, u.speed, dt);
     return;
   }
   const engageR = sq.mode === 'hold' ? 2.2 : 2.5;
   let t = u.target;
-  if (t && (!t.alive || t.fleeing || dist2(t.x, t.y, st.ax, st.ay) > (engageR + 1.2) * (engageR + 1.2))) t = u.target = null;
-  if (!t) t = u.target = nearestFoe(u, 1, engageR + 1.5, st.ax, st.ay, engageR);
+  if (t && (!t.alive || t.fleeing || !sameLevel(u, t) || dist2(t.x, t.y, st.ax, st.ay) > (engageR + 1.2) * (engageR + 1.2))) t = u.target = null;
+  if (!t) t = u.target = nearestFoe(u, 1, engageR + 1.5, st.ax, st.ay, engageR, true);
   if (t) {
     const reach = u.range + u.r + t.r, d = dist(u.x, u.y, t.x, t.y);
     if (d > reach) moveToward(u, t.x, t.y, u.speed, dt, reach * 0.9);
     else if (u.cdT <= 0) { meleeHit(u, t); u.cdT = u.cd * (0.9 + rand() * 0.2); }
     if (Math.abs(t.x - u.x) > 0.02) u.face = t.x > u.x ? 1 : -1;
-  } else moveToward(u, hx, hy, u.speed, dt);
+  } else walkTo(u, hx, hy, u.speed, dt);
 }
 
 function warlordAura(u) {
@@ -701,8 +745,8 @@ function updateRaider(u, dt) {
     }
   } else {
     let t = u.target;
-    if (t && (!t.alive || dist2(u.x, u.y, t.x, t.y) > (aggro + 1) * (aggro + 1))) t = null;
-    if (!t) t = nearestFoe(u, 0, aggro);
+    if (t && (!t.alive || !sameLevel(u, t) || dist2(u.x, u.y, t.x, t.y) > (aggro + 1) * (aggro + 1))) t = null;
+    if (!t) t = nearestFoe(u, 0, aggro, undefined, undefined, undefined, true);
     u.target = t;
     if (t) {
       const reach = u.range + u.r + t.r, d = dist(u.x, u.y, t.x, t.y);
@@ -808,8 +852,8 @@ function separate() {
       let d = Math.sqrt(d2);
       if (d < 1e-4) { dx = rand() - 0.5; dy = rand() - 0.5; d = Math.hypot(dx, dy); }
       const push = (min - d) / 2, px = dx / d * push, py = dy / d * push;
-      if (isLandAt(a.x - px, a.y - py)) { a.x -= px; a.y -= py; }
-      if (isLandAt(b.x + px, b.y + py)) { b.x += px; b.y += py; }
+      if (canWalk(a.x, a.y, a.x - px, a.y - py)) { a.x -= px; a.y -= py; }
+      if (canWalk(b.x, b.y, b.x + px, b.y + py)) { b.x += px; b.y += py; }
     }
   }
 }

@@ -8,7 +8,7 @@ const THEME3D = (function () {
     // terrain
     grass: 0x86b35a, grassDark: 0x5f8c40, grassLight: 0xa2c76c,
     high: 0x9fae78, highDark: 0x7c8a5c,
-    sand: 0xe6d29a, sandWet: 0xbfa877,
+    sand: 0xe6d29a, sandWet: 0xbfa877, path: 0xa98a5a,
     rock: 0x958c7a, rockLight: 0xb0a792, rockDark: 0x6a6253, rockDeep: 0x3d4a4c,
     seabed: 0x1c3f49,
     // vegetation
