@@ -50,11 +50,29 @@ offline progress, exponential costs and scaling, a farm/advance toggle, and a pr
     Palisades are the only building allowed on sand, and not on landing tiles.
   * **Grass**: walkable and buildable. Some grass tiles carry **trees**,
     which can't be built on but feed Lumber Camps.
-  * **Highland**: walkable but slow to climb. Buildable. Bowmen and Watchtowers
-    standing on highland get +1 range.
+  * **Highland**: plateaus ringed by cliffs. Buildable. Bowmen and Watchtowers standing on
+    highland get +1 range. **Only slopes lead up**: nobody walks up a cliff.
+* **Slopes** are grass tiles beside a plateau that climb to it, with timber steps. A slope is
+  entered only from its foot or its top, never from the side, and nothing may be built on one.
+  * Each plateau gets one slope near the Hall and, if large enough, one or two more spread round
+    its edge (1 under 6 tiles, 2 under 16, else 3), kept at least two tiles apart.
+  * The generator then walks the island from the Hall. While any land is cut off (a plateau
+    walling off a strip, or a slope blocking a narrow gap) it adds the slope nearest the Hall that
+    joins the cut-off part, never one that would strand something else. If no slope fits, it
+    lowers the stranded highland tile nearest the Hall, or raises a grass pit enclosed by a
+    plateau to join it. Checked on 2,400 islands: none has unreachable land.
+  * Slopes live in their own map layer (`MAP.ramp`), so tile types and saves are unchanged.
+    Saves from before slopes existed are laid out round any building that sits where a
+    slope would go.
+* **Movement and slopes**: path finding (raider flow field, squad routes), every step a unit
+  walks, crowd pushing and knockback all follow the same rule. Knockback can throw a unit off a
+  ledge or the side of a slope, but never up a cliff. Melee only happens between units on the same
+  level (a unit on a slope can reach both). Arrows, volleys and towers shoot up and down freely.
+  A soldier whose formation spot falls over a cliff edge closes up on the commander instead, and
+  one that ends up on the wrong level walks round by a slope.
 * Generation steps: radial falloff plus fractal noise, keep only the largest landmass,
   fill lakes, put highland at the top noise percentile, grow 4 to 7 beaches around the coast,
-  scatter forest clusters, and place the Great Hall at the most inland tile.
+  scatter forest clusters, place the Great Hall at the most inland tile, then lay out slopes.
 * Each island gets one **trait**:
   * Fertile: +25% gold
   * Timberland: more forest, +25% timber
@@ -137,8 +155,9 @@ rebuild for free after a few seconds. When a cottage falls, the raiders also
 | Warlord | every 10th wave | Boss. Huge HP. Gives +25% damage to nearby raiders. Pays out big |
 
 * Raiders path with a **flow field**, Dijkstra from every intact building, so they head for
-  the nearest one. Highland, forest and palisades cost extra, so raiders prefer open ground
-  and avoid walls when they can. When no path goes around, they break through.
+  the nearest one. They reach highland only by its slopes; climbing, forest and palisades cost
+  extra, so raiders prefer open ground and avoid walls when they can. When no path goes around,
+  they break through.
 * Melee raiders fight any squad within 1.6 tiles. Brutes ignore squads unless they block the way.
 * Raiders deal double damage to buildings because they carry torches.
 
@@ -197,6 +216,12 @@ rebuild for free after a few seconds. When a cottage falls, the raiders also
 * Click a squad (on the map or its card) to select it, then click a tile to make it hold there.
 * Zoom with the mouse wheel, a pinch or the **+ −** buttons; drag to pan while zoomed in.
 * Keys: Space pauses, Esc cancels, 1–3 set game speed, F3 shows frame rate and draw calls.
+* **Title menu**: the game opens on it, and the ☰ button brings it back. The island circles
+  slowly behind it (offset beside the card on wide screens, above it on upright phones) while the
+  game is held still. It offers Continue (with the wave, island and best wave) or Start, Settings,
+  How to play, and Start over (with a confirmation step). A "While you were away" summary waits
+  until the player continues. Esc steps back, then continues. Under browser automation it stays
+  closed unless the URL has `?menu`, so tests can drive the game directly.
 * The **⚙ Settings** tab holds per-device preferences (section 10, *Settings and quality*).
 
 ### Touch screens
@@ -227,7 +252,7 @@ classic 2D map instead (see *The classic 2D map* below).
 | --- | --- |
 | `js/render3d.js` | Scene, lights, shadows, resize, theme, and the `VIEW` interface below |
 | `js/r3d/builder.js` | `MeshBuilder`: boxes, prisms, cylinders, polygons with flat normals and vertex colours. Faces orient from an outward vector |
-| `js/r3d/terrain.js` | Tile grid to stepped terrain: grass 0.36, highland 0.92, beaches sloping from 0.16 to −0.06, rocky cliff walls down to the seabed, baked shade at cliff feet, instanced pines |
+| `js/r3d/terrain.js` | Tile grid to stepped terrain: grass 0.36, highland 0.92, beaches sloping from 0.16 to −0.06, slopes rising from grass to highland with an earth track, rocky cliff walls down to the seabed, baked shade at cliff feet |
 | `js/r3d/sea.js` | One shader for the sea: vertex waves near the island, ripple normals, depth colour and surf from a baked shoreline texture (distance to land, distance to a beach, depth over the sand), sun glints, fog. A flat outer ring carries it to the horizon |
 | `js/r3d/camera.js` | Orbit rig with easing and clamps (pitch 24°–78°, zoom limits from the island's fit, target inside the island) |
 | `js/r3d/picking.js` | Screen point to sim tile: ray against one box per tile column (seabed up to the surface or building top) |
@@ -240,6 +265,7 @@ classic 2D map instead (see *The classic 2D map* below).
 | `js/r3d/missiles.js` | Arrows along the sim's arcs with streaks, fire arrows, volleys, and reactions to sim effects (hits, bashes, splashes) |
 | `js/r3d/ui3d.js` | In-world UI: tile highlight, placement ghost with its yield label and the tiles a market or lumber camp would use, range rings draped over the terrain, the selected building's outline and ground ring, rings under a selected squad, its route to a hovered tile, hold flags, and rings where longboats will land |
 | `js/r3d/hud.js` | Screen-space UI: boat badges (clamped to the edge with an arrow when off screen), the selection info chip, health bars (one instanced draw call, fixed pixel size), gold and damage numbers, the performance overlay |
+| `js/menu.js` | The title menu (Continue/Start, Settings, How to play, Start over) and the camera showcase behind it |
 | `js/settings.js` | Per-device preferences (graphics, motion, theme, overlays, sound), stored apart from the game save |
 | `js/audio.js` | Procedural WebAudio: surf, horn, clinks, arrows, fire, splashes, building, clicks |
 | `js/theme3d.js` | All colours. Light (noon) and dark (dusk) variants change only sky, sun, sea and smoke tint, so a theme switch never rebuilds geometry. Island traits add palette overrides and a Fogbound sky |
@@ -458,6 +484,7 @@ What the renderer reads from the sim each frame, and how:
   `leave`, `gone`), `cargo`, `boss`, `alpha`, `visibleAt` (hidden while `RT.timer > visibleAt` in a
   Fogbound countdown), `landing`.
 * **Buildings** (`G.buildings`): `id`, `type`, `x`, `y`, `lvl`, `hp`/`maxHp`, `ruined`, `rebuild`, `flash`.
+* **Island** (`MAP`): `tile`, `tree`, `ramp` (slope direction per tile, or −1), `landings`, `hall`, `dock`, `trait`.
 * **Projectiles and effects**: `RT.projectiles` (`x`, `y`, `sx`, `sy`, `tx`, `ty`, `h0`, `fire`,
   `visual`), `RT.volleys`, `RT.effects` (`hit`, `death`, `splash`, `bash`, `volley`, `blaze`,
   `refill`, `spark`), `RT.floaters`, `RT.phase`/`RT.timer`.

@@ -536,6 +536,145 @@ async function tilePoint(page, x, y) {
     await ctx.close();
   }
 
+  console.log('slopes');
+  {
+    const { ctx, page, errors } = await open(browser, { viewport: { width: 900, height: 600 }, query: '?quality=low' });
+    await page.addScriptTag({ path: path.join(__dirname, 'bot.js') });
+    const r = await page.evaluate(() => {
+      const out = { islands: 0, cutOff: 0, plateausWithout: 0, slopes: 0 };
+      // every island: all land reachable from the Hall, every plateau has a slope
+      for (let s = 1; s <= 60; s++) for (const tr of ['fertile', 'highlands']) {
+        const m = generateIsland(s * 104729, tr), seen = reachable(m, tIdx(m.hall.x, m.hall.y));
+        out.islands++;
+        for (let i = 0; i < m.tile.length; i++) if (m.tile[i] !== T_WATER && !seen[i]) { out.cutOff++; break; }
+        for (let i = 0; i < m.ramp.length; i++) if (m.ramp[i] >= 0) out.slopes++;
+      }
+      // the island in play: rules and looks
+      G.island = { seed: 777, trait: 'highlands' }; G.buildings = []; G.squads = []; setupIsland(); recalc(); resetRuntime();
+      VIEW.frame(0.016, 1);
+      let slope = null, cliff = null;
+      for (let i = 0; i < MAP.ramp.length && !slope; i++) if (MAP.ramp[i] >= 0) slope = { x: i % MAP_W, y: (i / MAP_W) | 0, d: MAP.ramp[i] };
+      for (let y = 0; y < MAP_H && !cliff; y++) for (let x = 0; x < MAP_W && !cliff; x++)
+        if (tileType(x, y) === T_GRASS && !isRamp(x, y) && tileType(x + 1, y) === T_HIGH) cliff = { x, y };
+      const [dx, dy] = DIR4[slope.d];
+      out.upSlope = canStep(slope.x, slope.y, dx, dy) && canStep(slope.x - dx, slope.y - dy, dx, dy);
+      out.upCliff = cliff ? canStep(cliff.x, cliff.y, 1, 0) : false;
+      out.sideOfSlope = canStep(slope.x, slope.y, dy, dx) || canStep(slope.x, slope.y, -dy, -dx);
+      out.buildOnSlope = placementCheck('cottage', slope.x, slope.y).reason;
+      const foot = R3.Terrain.heightAt(slope.x + 0.5 - dx * 0.45, slope.y + 0.5 - dy * 0.45), top = R3.Terrain.heightAt(slope.x + 0.5 + dx * 0.45, slope.y + 0.5 + dy * 0.45);
+      out.rises = top - foot;
+      out.steps = VIEW.props.counts.logs;
+      // a few waves: nobody crosses between low ground and highland except by a slope (or falling)
+      RNG = mulberry32(5); G.paused = true;
+      const last = new Map(); let moves = 0, bad = 0, falls = 0, t = 0, nb = 0;
+      const classes = ['sword', 'bow', 'pike', 'bow'];
+      while (t < 6 * 60) {
+        step(STEP); t += STEP;
+        if (t >= nb) { nb = t + 1; botAct(classes); }
+        if (!G.autoAdvance) G.autoAdvance = true;
+        for (const u of RT.units) {
+          if (!u.alive) { last.delete(u.id); continue; }
+          const tx = Math.floor(u.x), ty = Math.floor(u.y), p = last.get(u.id);
+          last.set(u.id, { x: tx, y: ty, kb: !!(u.kbx || u.kby) });
+          if (!p || (p.x === tx && p.y === ty) || !isLandTile(p.x, p.y) || !isLandTile(tx, ty)) continue;
+          moves++;
+          // legal: a step to a side neighbour the rules allow, or a diagonal step through one
+          const a = tIdx(p.x, p.y), b = tIdx(tx, ty), dx = tx - p.x, dy = ty - p.y;
+          let ok = false;
+          if (Math.abs(dx) + Math.abs(dy) === 1) ok = crossOK(MAP, a, b);
+          else if (Math.abs(dx) === 1 && Math.abs(dy) === 1) {
+            ok = (isLandTile(tx, p.y) && crossOK(MAP, a, tIdx(tx, p.y)) && crossOK(MAP, tIdx(tx, p.y), b)) ||
+                 (isLandTile(p.x, ty) && crossOK(MAP, a, tIdx(p.x, ty)) && crossOK(MAP, tIdx(p.x, ty), b));
+          }
+          if (ok) continue;
+          if (levelAt(p.x, p.y) > levelAt(tx, ty) || isRamp(p.x, p.y)) { falls++; continue; }
+          bad++;
+          if (!out.example) out.example = { from: [p.x, p.y, levelAt(p.x, p.y)], to: [tx, ty, levelAt(tx, ty)], kb: p.kb, side: u.side, kind: u.kind };
+        }
+      }
+      out.moves = moves; out.bad = bad; out.falls = falls; out.best = G.bestWave;
+      return out;
+    });
+    check('every island can be walked from end to end', r.cutOff === 0, r.cutOff + ' of ' + r.islands + ' islands cut off, ' + (r.slopes / r.islands).toFixed(1) + ' slopes each');
+    check('a slope can be climbed, a cliff cannot, nor a slope from its side', r.upSlope && !r.upCliff && !r.sideOfSlope, JSON.stringify({ up: r.upSlope, cliff: r.upCliff, side: r.sideOfSlope }));
+    check('slopes must stay clear of buildings', r.buildOnSlope === 'Slopes must stay clear', r.buildOnSlope);
+    check('a slope rises from the grass to the highland, with steps', r.rises > 0.4 && r.steps >= 4, r.rises.toFixed(2) + ' rise, ' + r.steps + ' steps');
+    check('in battle nobody climbs between levels except by a slope', r.moves > 500 && r.bad === 0, r.moves + ' tile moves, ' + r.bad + ' illegal climbs, ' + r.falls + ' knocked off a ledge, wave ' + r.best + (r.example ? ' ' + JSON.stringify(r.example) : ''));
+    // a save from before slopes, with a building where a slope now goes, still loads
+    const mig = await page.evaluate(() => {
+      G.island = { seed: 777, trait: 'highlands' }; setupIsland(); recalc();
+      let at = null;
+      for (let i = 0; i < MAP.ramp.length && !at; i++) if (MAP.ramp[i] >= 0) at = { x: i % MAP_W, y: (i / MAP_W) | 0 };
+      const o = serialize(); o.buildings.push(['cottage', at.x, at.y, 1]);
+      deserialize(o); resetRuntime();
+      const b = G.buildings.find(q => q.x === at.x && q.y === at.y);
+      const seen = reachable(MAP, tIdx(MAP.hall.x, MAP.hall.y));
+      let cut = 0; for (let i = 0; i < MAP.tile.length; i++) if (MAP.tile[i] !== T_WATER && !seen[i]) cut++;
+      return { kept: !!b, onSlope: isRamp(at.x, at.y), cut };
+    });
+    check('an older save with a building where a slope now goes keeps it, and slopes go round it', mig.kept && !mig.onSlope && mig.cut === 0, JSON.stringify(mig));
+    check('no errors', errors.length === 0, errors.slice(0, 3).join(' | '));
+    await ctx.close();
+  }
+
+  console.log('title menu');
+  {
+    // a returning player: a save from an hour ago, then the page opens on the menu
+    const ctx = await browser.newContext({ viewport: { width: 1100, height: 700 }, colorScheme: 'light' });
+    // a prepared save is put in place before the next page's scripts run (the page saves itself
+    // as it unloads, which would overwrite one written any earlier)
+    await ctx.addInitScript(() => {
+      try {
+        if (!sessionStorage.getItem('seeded')) { localStorage.clear(); sessionStorage.setItem('seeded', '1'); }
+        const prep = sessionStorage.getItem('prep');
+        if (prep) { localStorage.setItem('idle-island-save-v1', prep); sessionStorage.removeItem('prep'); }
+      } catch (e) { /* storage */ }
+    });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+    await page.goto(url);
+    await page.waitForTimeout(1000);
+    await page.evaluate(() => {
+      G.wave = 4; G.bestWave = 4; const o = serialize(); o.lastSave = Date.now() - 3600 * 1000;
+      sessionStorage.setItem('prep', JSON.stringify(o));
+      Storage.prototype.setItem = () => {};     // this page must not save over it as it unloads
+    });
+    await page.goto(url + '?menu');
+    await page.waitForTimeout(1500);
+    const m0 = await page.evaluate(() => ({ open: UI.menu && !document.getElementById('menu').hidden, primary: document.querySelector('.menu-primary').textContent, modal: !document.getElementById('modal').hidden, topbar: getComputedStyle(document.querySelector('.topbar')).display, showcase: !!VIEW.rig.showcase, t: RT.timer }));
+    await page.waitForTimeout(700);
+    const t1 = await page.evaluate(() => RT.timer);
+    await page.screenshot({ path: path.join(out, '3d-menu.png') });
+    await page.click('[data-act="menu-view"][data-arg="settings"]');
+    const set = await page.evaluate(() => document.querySelectorAll('#menu-card [data-act="set"]').length);
+    await page.keyboard.press('Escape');
+    await page.click('[data-act="menu-view"][data-arg="help"]');
+    const help = await page.evaluate(() => /slopes/.test(document.getElementById('menu-card').textContent));
+    await page.keyboard.press('Escape');
+    const queued = await page.evaluate(() => MENU.after.length);
+    await page.click('.menu-primary');
+    await page.waitForSelector('#modal:not([hidden])', { timeout: 5000 }).catch(() => null);
+    const m1 = await page.evaluate(() => ({ open: UI.menu, modal: !document.getElementById('modal').hidden, showcase: !!VIEW.rig.showcase, topbar: getComputedStyle(document.querySelector('.topbar')).display }));
+    m1.queued = queued;
+    if (m1.modal) await page.click('#modal-ok');
+    const t2 = await page.evaluate(() => RT.timer); await page.waitForTimeout(700); const t3 = await page.evaluate(() => RT.timer);
+    await page.click('#menu-btn');
+    const m2 = await page.evaluate(() => UI.menu);
+    await page.click('[data-act="menu-view"][data-arg="confirm"]');
+    await page.click('[data-act="menu-reset"]');
+    const m3 = await page.evaluate(() => ({ open: UI.menu, primary: document.querySelector('.menu-primary').textContent, wave: G.wave, buildings: G.buildings.length }));
+    check('the game opens on the title menu, with the interface out of the way', m0.open && m0.primary.startsWith('Continue') && m0.topbar === 'none' && m0.showcase, JSON.stringify(m0));
+    check('the game is held still while the menu is up', m0.t === t1, m0.t + ' -> ' + t1);
+    check('the time-away summary waits for Continue', !m0.modal && m1.modal, JSON.stringify({ before: m0.modal, queued: m1.queued, after: m1.modal }));
+    check('Settings and How to play open inside the menu', set > 10 && help, set + ' settings, help mentions slopes: ' + help);
+    check('Continue returns to the game, which runs again', !m1.open && !m1.showcase && m1.topbar !== 'none' && t3 < t2, JSON.stringify(m1) + ' timer ' + t2 + ' -> ' + t3);
+    check('the menu button brings it back; Start over begins afresh', m2 && m3.open && m3.primary.startsWith('Start') && m3.wave === 1 && m3.buildings <= 2, JSON.stringify(m3));
+    check('no errors', errors.length === 0, errors.slice(0, 3).join(' | '));
+    await ctx.close();
+  }
+
   console.log('hidden tab');
   {
     const { ctx, page, errors } = await open(browser, { viewport: { width: 800, height: 500 }, query: '?quality=low' });

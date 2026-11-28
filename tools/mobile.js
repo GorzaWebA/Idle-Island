@@ -214,6 +214,20 @@ async function testDevice(browser, name) {
   await page.evaluate(() => { UI.tab = 'squads'; UI.selSq = null; renderPanel(); VIEW.rig.settle(); VIEW.frame(0.016, 1); });
   await page.waitForTimeout(250);
   await page.screenshot({ path: path.join(out, 'mobile-' + name.replace(/\s+/g, '-').toLowerCase() + '.png') });
+  // ---- the title menu on this device ----
+  await page.goto(url + '?menu');
+  await page.waitForTimeout(1500);
+  const mn = await page.evaluate(() => {
+    const card = document.getElementById('menu-card').getBoundingClientRect(), small = [];
+    for (const el of document.querySelectorAll('#menu-card button')) { const r = el.getBoundingClientRect(); if (r.height < 34 || r.width < 34) small.push(el.textContent.trim()); }
+    return { open: UI.menu, fits: card.top >= 0 && card.bottom <= innerHeight + 1 && card.left >= 0 && card.right <= innerWidth + 1, small };
+  });
+  if (name === DEVICES[0]) await page.screenshot({ path: path.join(out, 'mobile-menu.png') });
+  await page.tap('.menu-primary');
+  await page.waitForTimeout(400);
+  const playing = await page.evaluate(() => !UI.menu && getComputedStyle(document.querySelector('.topbar')).display !== 'none');
+  check(results, 'title menu fits, has finger-sized buttons, and Continue starts the game', mn.open && mn.fits && !mn.small.length && playing, JSON.stringify(mn) + ' playing ' + playing);
+
   check(results, 'no script errors', errors.length === 0, errors.join(' | '));
   await ctx.close();
   return results;

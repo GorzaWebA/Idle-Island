@@ -39,6 +39,7 @@
 - ⛵ **Raiders you can see coming.** Longboats appear on the horizon during the countdown. Markers at the screen edge show where each one will land and how many raiders it carries.
 - 🛡️ **Squads with names and personalities.** Each commander has a trait. Promote your militia to Shieldbearers, Bowmen or Pikemen, each with its own automatic ability.
 - 🔥 **Houses that burn.** Raiders torch whatever they reach. Ruins stop producing, and a burning cottage costs you some of your gold.
+- ⛰️ **High ground matters.** Plateaus can only be climbed by their slopes. Bowmen and towers up there shoot further, and raiders have to come round by the slopes to reach them.
 - 🌊 **The sea is a weapon.** Shield bashes and brute swings knock units back, and anyone pushed into the water drowns.
 - 🏗️ **Placement matters.** Lumber camps want forest, markets want cottages around them, towers want high ground, and palisades funnel raiders off the beaches.
 - 💤 **Real idle play.** Income keeps flowing, waves run on their own, and progress continues while you're away (up to 8 hours).
@@ -121,6 +122,7 @@ Commander traits: *Stalwart*, *Fierce*, *Swift*, *Keen-eyed*, *Hardy*, *Lucky*.
 | <kbd>Space</kbd> | Pause |
 | <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> | Game speed |
 | <kbd>F3</kbd> | Frame rate and draw calls |
+| **☰** button | The title menu: continue, settings, how to play, start over |
 | **⚙** tab | Settings: quality (Auto, Low, Medium, High), shadows, sharpness, effects, day or dusk, reduced motion, turning when idle, health bars, damage numbers, sound |
 
 ## 🛠️ Run it locally
@@ -155,7 +157,7 @@ Choose under **Settings → Pages → Deploy from a branch**:
 | :-- | :-- |
 | `js/util.js` | Seeded RNG, value noise, number formatting |
 | `js/data.js` | All game data and balance formulas: buildings, classes, raiders, waves, Sagas |
-| `js/island.js` | Procedural island generator (beaches, highland, forest, Hall site) |
+| `js/island.js` | Procedural island generator (beaches, highland, forest, Hall site, slopes) and the walking rules between levels |
 | `js/state.js` | Persistent state, derived stats, economy actions, save/load, offline progress |
 | `js/sim.js` | Fixed-step battle simulation: boats, flow-field raider pathing, squad AI, combat |
 | `js/render3d.js` | 3D renderer: scene, lights, shadows, loop hooks, the `VIEW` interface |
@@ -165,6 +167,7 @@ Choose under **Settings → Pages → Deploy from a branch**:
 | `js/settings.js` | Player preferences for this device, stored apart from the save |
 | `js/audio.js` | Procedural WebAudio sound effects and surf |
 | `js/ui.js` | Header, tabbed panel (including Settings), map input |
+| `js/menu.js` | The title menu, with the island circling behind it |
 | `js/main.js` | Boot, renderer choice, main loop, autosave |
 | `js/vendor/` | three.js r159 (classic build, MIT) |
 | `css/fonts/` | Barlow and Grenze (SIL Open Font License), served locally |
