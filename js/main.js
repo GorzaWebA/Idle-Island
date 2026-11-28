@@ -1,6 +1,17 @@
 'use strict';
 /* Boot, main loop, autosave and offline catch-up. */
 
+// The active renderer (see the VIEW interface in js/render3d.js).
+let VIEW = null;
+
+// 3D unless the page asks for the classic map (?2d) or WebGL is unavailable.
+function chooseView(stage) {
+  const want2d = /(?:^|[?&])2d(?:&|=|$)/.test(location.search);
+  if (!want2d && window.R3 && R3.view && typeof THREE !== 'undefined' && R3.view.init(stage)) return { view: R3.view, fellBack: false };
+  VIEW2D.init(stage);
+  return { view: VIEW2D, fellBack: !want2d };
+}
+
 function showOffline(g) {
   const stat = (k, v) => '<div><span class="k">' + k + '</span><span class="v">' + v + '</span></div>';
   showModal('While you were away',
@@ -20,18 +31,22 @@ function start(data) {
     G = null; newGame();
     logEvent('Settlers come ashore on a ' + islandTrait(G.island.trait).name.toLowerCase() + ' isle.');
   }
-  initRender($('cv'));
+  const stage = $('stage');
+  const chosen = chooseView(stage);
+  VIEW = chosen.view;
   resetRuntime();
   initUI();
+  if (typeof AUDIO !== 'undefined') AUDIO.init();
+  if (chosen.fellBack) setBanner('Classic map', 'This browser can\'t show the 3D island, so the flat map is shown instead.', 'bad');
 
   if (loaded && !(data && data.save)) {
     const away = (Date.now() - G.lastSave) / 1000;
     if (away > 60) showOffline(applyOffline(away));
   }
 
-  const stage = $('stage');
-  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => resizeRender()).observe(stage);
-  window.addEventListener('resize', resizeRender);
+  const onResize = () => VIEW.resize();
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(onResize).observe(stage);
+  window.addEventListener('resize', onResize);
 
   setInterval(saveGame, 15000);
   let hiddenAt = 0;
@@ -47,18 +62,22 @@ function start(data) {
 
   try { window.claude && window.claude.hot && window.claude.hot.snapshot && window.claude.hot.snapshot(() => ({ save: serialize() })); } catch (e) { /* no hot reload host */ }
 
-  let last = performance.now(), acc = 0, panelT = 0;
+  let last = performance.now(), acc = 0, panelT = 0, headerT = 0;
   function frame(now) {
     let dt = (now - last) / 1000; last = now;
     dt = Math.min(Math.max(dt, 0), 0.25);
     if (!G.paused) {
       acc += dt * G.speed;
       let n = 0;
-      while (acc >= STEP && n < 30) { step(STEP); acc -= STEP; n++; }
+      while (acc >= STEP && n < 30) { VIEW.beforeStep(); step(STEP); acc -= STEP; n++; }
       if (n >= 30) acc = 0;
     }
-    render(dt);
-    updateHeader();
+    // nothing is drawn while the tab is hidden (browsers also stop calling us; the sim's
+    // offline catch-up covers the time away)
+    if (!document.hidden) VIEW.frame(dt, G.paused ? 1 : acc / STEP);
+    if (typeof AUDIO !== 'undefined') AUDIO.update(dt);
+    headerT -= dt;
+    if (headerT <= 0) { headerT = 0.08; updateHeader(); }     // ~12 times a second is plenty for text
     panelT -= dt;
     if (panelT <= 0) { panelT = 0.2; renderPanel(); }
     requestAnimationFrame(frame);

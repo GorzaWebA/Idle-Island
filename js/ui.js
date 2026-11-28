@@ -14,6 +14,14 @@ function isTouch() {
 function verb() { return isTouch() ? 'Tap' : 'Click'; }
 const $ = id => document.getElementById(id);
 
+// Squad colours (banners, rings, bars), shared by both renderers. squadHex gives the number form,
+// so the 3D view never re-parses a colour string in its frame loop.
+const SQUAD_COLORS = ['#f2c94c', '#56ccf2', '#eb5757', '#6fcf97', '#bb6bd9', '#f2994a', '#2dd4bf', '#f5f5f5', '#a3e635'];
+const SQUAD_HEX = SQUAD_COLORS.map(c => parseInt(c.slice(1), 16));
+function squadIndex(sq) { return Math.max(0, G.squads.indexOf(sq)) % SQUAD_COLORS.length; }
+function squadColor(sq) { return SQUAD_COLORS[squadIndex(sq)]; }
+function squadHex(sq) { return SQUAD_HEX[squadIndex(sq)]; }
+
 function setText(el, v) { if (el && el.textContent !== v) el.textContent = v; }
 function setAttr(el, k, v) { if (el && el.getAttribute(k) !== v) el.setAttribute(k, v); }
 function setHidden(el, h) { if (el && el.hidden !== h) el.hidden = h; }
@@ -92,9 +100,10 @@ function renderPanel() {
   if (UI.tab === 'build') html = buildTab();
   else if (UI.tab === 'squads') html = squadsTab();
   else if (UI.tab === 'sagas') html = sagasTab();
+  else if (UI.tab === 'settings') html = settingsTab();
   else html = chronicleTab();
   morphInto($('panel-body'), html);
-  for (const t of ['build', 'squads', 'sagas', 'chronicle']) setAttr($('tab-' + t), 'aria-selected', String(UI.tab === t));
+  for (const t of ['build', 'squads', 'sagas', 'chronicle', 'settings']) setAttr($('tab-' + t), 'aria-selected', String(UI.tab === t));
   const hint = currentHint();
   setHidden($('hint'), !hint);
   if (hint) morphInto($('hint'), '<b>' + escapeHtml(hint[0]) + '</b><span>' + escapeHtml(hint[1]) + '</span>');
@@ -270,7 +279,46 @@ function chronicleTab() {
     '<dt>Click or tap a tile</dt><dd>Select a building, or place one in build mode. On touch screens the first tap previews and a second tap builds</dd>' +
     '<dt>Select a squad</dt><dd>Then pick a tile to hold there</dd>' +
     '<dt>Pinch, scroll or <kbd>+</kbd> <kbd>−</kbd></dt><dd>Zoom the map; drag to look around when zoomed</dd>' +
-    '<dt>Cancel, <kbd>Esc</kbd> or right-click</dt><dd>Stop placing or deselect</dd><dt><kbd>Space</kbd></dt><dd>Pause</dd><dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></dt><dd>Game speed</dd></dl>';
+    '<dt>Cancel, <kbd>Esc</kbd> or right-click</dt><dd>Stop placing or deselect</dd><dt><kbd>Space</kbd></dt><dd>Pause</dd><dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></dt><dd>Game speed</dd>' +
+    '<dt><kbd>F3</kbd></dt><dd>Frame rate and draw calls</dd></dl>';
+  return h;
+}
+
+/* ---------- settings ---------- */
+function setButtons(key, opts) {
+  let h = '<div class="seg-row" role="group">';
+  for (const [v, label] of opts) h += '<button class="seg" data-act="set" data-arg="' + key + ':' + v + '" aria-pressed="' + String(String(SETTINGS[key]) === String(v)) + '">' + label + '</button>';
+  return h + '</div>';
+}
+function setToggle(key) {
+  return '<button class="toggle" data-act="set" data-arg="' + key + ':' + String(!SETTINGS[key]) + '" aria-pressed="' + String(!!SETTINGS[key]) + '">' + (SETTINGS[key] ? 'On' : 'Off') + '</button>';
+}
+function setRow(label, control, note) {
+  return '<div class="set-row"><span class="set-label">' + label + '</span>' + control + '</div>' + (note ? '<p class="set-note">' + note + '</p>' : '');
+}
+function settingsTab() {
+  const is3d = VIEW && VIEW.kind === '3d';
+  const cap = w => w ? w.charAt(0).toUpperCase() + w.slice(1) : '';
+  const now = is3d ? 'Now ' + cap(VIEW.level) + (SETTINGS.quality === 'auto' ? ' (auto)' : '') : 'Classic map';
+  let h = '<div class="card" data-key="gfx"><div class="card-head"><span class="card-title">Graphics</span><span class="card-sub">' + now + '</span></div>';
+  if (!is3d) h += '<p class="note">These apply to the 3D island, which this browser can\'t show.</p>';
+  h += setRow('Quality', setButtons('quality', [['auto', 'Auto'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']]), 'Auto watches how smoothly the first seconds run and picks a level once.');
+  h += setRow('Shadows', setButtons('shadows', [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']]));
+  h += setRow('Sharpness', setButtons('pixelRatio', [['auto', 'Auto'], ['1', '1×'], ['1.5', '1.5×'], ['2', '2×']]), 'Pixels per screen point. Lower is faster on phones.');
+  h += setRow('Effects', setButtons('particles', [['auto', 'Auto'], ['low', 'Few'], ['medium', 'Some'], ['high', 'Full']]), 'Smoke, flames, sparks and spray.');
+  h += '</div>';
+  h += '<div class="card" data-key="view"><div class="card-head"><span class="card-title">View</span></div>';
+  h += setRow('Theme', setButtons('theme', [['system', 'System'], ['light', 'Day'], ['dark', 'Dusk']]));
+  h += setRow('Motion', setButtons('motion', [['system', 'System'], ['reduce', 'Reduced'], ['full', 'Full']]), 'Reduced motion turns off camera shake and the nudge towards the Warlord.');
+  h += setRow('Turn when idle', setToggle('autoRotate'), 'The camera circles slowly after 20 seconds without input.');
+  h += setRow('Health bars', setToggle('healthBars'));
+  h += setRow('Damage numbers', setToggle('damageNumbers'));
+  h += setRow('Performance', setToggle('perfOverlay'), 'Frame rate and draw calls over the map. <kbd>F3</kbd> toggles it too.');
+  h += '</div>';
+  h += '<div class="card" data-key="sound"><div class="card-head"><span class="card-title">Sound</span><span class="card-sub">' + (typeof AUDIO !== 'undefined' && AUDIO.available() ? 'Made in the browser' : 'Not supported here') + '</span></div>';
+  h += setRow('Sound', setToggle('sound'));
+  h += setRow('Volume', '<input type="range" class="set-range" min="0" max="100" step="5" value="' + Math.round(SETTINGS.volume * 100) + '" data-set="volume" aria-label="Volume"' + (SETTINGS.sound ? '' : ' disabled') + '>');
+  h += '<p class="set-note">Surf, a horn when the raiders land, clashing steel, arrows and fire. No audio files are downloaded.</p></div>';
   return h;
 }
 
@@ -331,10 +379,27 @@ function updateHeader() {
   setHidden($('mode-line'), !mode);
   setText($('mode-text'), mode);
   setHidden($('mode-cancel'), !cancellable);
-  setAttr($('zoom-out'), 'aria-disabled', String(!(R.zoom > 1.001)));
+  setAttr($('zoom-out'), 'aria-disabled', String(!VIEW.canZoomOut()));
   const hv = hoverText();
   setHidden($('hover-line'), !hv);
   setText($('hover-line'), hv);
+}
+
+// What building `type` on tile (x, y) would give, and whether it can go there.
+function placementPreview(type, x, y) {
+  const chk = placementCheck(type, x, y);
+  let gain = '';
+  if (chk.valid) {
+    if (type === 'lumber') gain = '+' + fmtRate(lumberTimber(1, adjacentTrees(x, y)) * (G.island.trait === 'timberland' ? 1.25 : 1)) + ' timber/s';
+    else if (type === 'cottage') gain = '+' + fmtRate(cottageGold(1) * (1 + marketBonusAt(x, y)) * (1 + 0.2 * sagaLvl('harvest')) * (G.island.trait === 'fertile' ? 1.25 : 1)) + ' gold/s';
+    else if (type === 'tower') gain = 'Range ' + (3.5 + (tileType(x, y) === T_HIGH ? 1 : 0));
+    else if (type === 'market') {
+      let n = 0; for (const o of G.buildings) if ((o.type === 'cottage' || o.type === 'hall') && Math.max(Math.abs(o.x - x), Math.abs(o.y - y)) === 1) n++;
+      gain = 'Boosts ' + n + ' building' + (n === 1 ? '' : 's');
+    } else if (type === 'barracks') gain = '+1 squad';
+    else if (type === 'palisade') gain = 'Wall';
+  }
+  return { chk, gain };
 }
 
 function hoverText() {
@@ -348,17 +413,8 @@ function hoverText() {
   const b = buildingAtTile(hv.x, hv.y);
   if (b) s = BUILDINGS[b.type].name + ' Lv ' + b.lvl + (b.ruined ? ' (ruined)' : '') + ' · ' + s;
   if (UI.placing) {
-    const chk = placementCheck(UI.placing, hv.x, hv.y);
-    let preview = '';
-    if (chk.valid) {
-      if (UI.placing === 'lumber') preview = ' · +' + fmtRate(lumberTimber(1, adjacentTrees(hv.x, hv.y)) * (G.island.trait === 'timberland' ? 1.25 : 1)) + ' timber/s';
-      if (UI.placing === 'cottage') preview = ' · +' + fmtRate(cottageGold(1) * (1 + marketBonusAt(hv.x, hv.y)) * (1 + 0.2 * sagaLvl('harvest')) * (G.island.trait === 'fertile' ? 1.25 : 1)) + ' gold/s';
-      if (UI.placing === 'tower') preview = ' · range ' + (3.5 + (t === T_HIGH ? 1 : 0));
-      if (UI.placing === 'market') {
-        let n = 0; for (const o of G.buildings) if ((o.type === 'cottage' || o.type === 'hall') && Math.max(Math.abs(o.x - hv.x), Math.abs(o.y - hv.y)) === 1) n++;
-        preview = ' · boosts ' + n + ' building' + (n === 1 ? '' : 's');
-      }
-    }
+    const pv = placementPreview(UI.placing, hv.x, hv.y), chk = pv.chk;
+    const preview = pv.gain && UI.placing !== 'palisade' && UI.placing !== 'barracks' ? ' · ' + pv.gain.charAt(0).toLowerCase() + pv.gain.slice(1) : '';
     const ask = isTouch() ? (UI.pending && UI.pending.x === hv.x && UI.pending.y === hv.y ? 'Tap again to build' : 'Tap to preview') : 'Click to build';
     s = (chk.ok ? ask : chk.reason) + preview + ' · ' + s;
   }
@@ -373,12 +429,12 @@ function cancelModes() {
 }
 
 function canvasPoint(e) {
-  const r = R.canvas.getBoundingClientRect();
+  const r = VIEW.canvas.getBoundingClientRect();
   return { x: e.clientX - r.left, y: e.clientY - r.top };
 }
 
 function onCanvasClick(mx, my) {
-  const tile = pickTile(mx, my);
+  const tile = VIEW.pickTile(mx, my);
   if (UI.placing) {
     if (!tile) return;
     // On touch screens the first tap only previews the spot.
@@ -396,7 +452,7 @@ function onCanvasClick(mx, my) {
     renderPanel();
     return;
   }
-  const sq = pickSquadAt(mx, my, isTouch() ? Math.max(R.T * 0.6, 22) : R.T * 0.4);
+  const sq = VIEW.pickSquadAt(mx, my, isTouch());
   if (sq) {
     UI.selSq = UI.selSq === sq.id ? null : sq.id;
     UI.selB = null; UI.tab = 'squads';
@@ -425,8 +481,9 @@ function doAction(act, arg, ev) {
     case 'build': UI.placing = UI.placing === arg ? null : arg; UI.pending = null; UI.selB = null; UI.selSq = null; break;
     case 'cancel-place': UI.placing = null; UI.pending = null; break;
     case 'cancel-modes': cancelModes(); UI.selB = null; break;
-    case 'zoom-in': zoomAt(R.w / 2, R.h / 2, R.zoom * 1.5); break;
-    case 'zoom-out': zoomAt(R.w / 2, R.h / 2, R.zoom / 1.5 < 1.1 ? 1 : R.zoom / 1.5); break;
+    case 'zoom-in': VIEW.zoomBy(1.5); break;
+    case 'zoom-out': VIEW.zoomBy(1 / 1.5); break;
+    case 'recentre': VIEW.recentre(); break;
     case 'select-hall': { const h = hallBuilding(); UI.selB = h ? h.id : null; break; }
     case 'hall-up': { const h = hallBuilding(); if (h && upgradeBuilding(h)) saveGame(); break; }
     case 'b-up': { const b = buildingById(+arg); if (b) upgradeBuilding(b); break; }
@@ -483,6 +540,7 @@ function doAction(act, arg, ev) {
       } else UI.confirm = 'reset';
       break;
     case 'close-modal': $('modal').hidden = true; break;
+    case 'set': { const i = arg.indexOf(':'); setSetting(arg.slice(0, i), arg.slice(i + 1)); break; }
   }
   renderPanel();
   updateHeader();
@@ -498,7 +556,21 @@ function showModal(title, html) {
 /* Map input: taps and clicks, drag to pan, pinch or wheel to zoom.
    Taps are detected from pointer events (not 'click'), which behaves the same on every device. */
 function initCanvasInput() {
-  const cv = R.canvas;
+  if (VIEW.bindInput) {
+    // 3D: the camera rig owns drag, pinch and wheel; it reports taps and hovers back here.
+    VIEW.bindInput({
+      onDown(type, mx, my) {
+        UI.lastPointer = type;
+        if (type !== 'mouse' && !UI.placing) UI.hover = VIEW.pickTile(mx, my);
+      },
+      onHover(mx, my) { UI.hover = VIEW.pickTile(mx, my); },
+      onLeave() { UI.hover = null; },
+      onTap(mx, my) { onCanvasClick(mx, my); },
+      onCancel() { cancelModes(); UI.selB = null; renderPanel(); }
+    });
+    return;
+  }
+  const cv = VIEW.canvas;
   const pts = new Map();
   let pinch = null, drag = null, multi = false;
   cv.addEventListener('pointerdown', e => {
@@ -562,7 +634,12 @@ function initUI() {
     const el = e.target.closest('[data-act]');
     if (!el || el.disabled) return;
     e.preventDefault();
+    if (typeof AUDIO !== 'undefined') AUDIO.click();
     doAction(el.dataset.act, el.dataset.arg, e);
+  });
+  document.addEventListener('input', e => {
+    const k = e.target && e.target.dataset && e.target.dataset.set;
+    if (k === 'volume') setSetting('volume', (+e.target.value) / 100);
   });
   initCanvasInput();
   document.addEventListener('keydown', e => {
@@ -574,6 +651,7 @@ function initUI() {
     if (e.key === 'Escape') { cancelModes(); UI.selB = null; if (!$('modal').hidden) $('modal').hidden = true; renderPanel(); }
     else if (e.key === ' ') { e.preventDefault(); G.paused = !G.paused; }
     else if (e.key === '1' || e.key === '2' || e.key === '3') { G.speed = +e.key; G.paused = false; }
+    else if (e.key === 'F3') { e.preventDefault(); setSetting('perfOverlay', !SETTINGS.perfOverlay); renderPanel(); }
   });
   renderPanel();
 }
